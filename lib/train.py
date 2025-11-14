@@ -4,7 +4,8 @@ import torch.nn as nn
 def train_one_epoch(dataloader : torch.utils.data.DataLoader, 
                     model : type[nn.Module],
                     criterion : type[nn.Module], 
-                    opt : type[torch.optim.Optimizer]):
+                    opt : type[torch.optim.Optimizer],
+                    device : torch.device):
     """
     Train the model for one epoch.
 
@@ -18,6 +19,8 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
         The loss function.
     opt : torch.optim.Optimizer
         The optimizer to update the model's weights.
+    device : torch.device
+        The device to put the tensors on.
 
     Returns
     -------
@@ -31,20 +34,20 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
     predicted_y = []
     true_y = []
 
-    for (x, y) in dataloader:
+    for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in dataloader:
         opt.zero_grad()
 
-        predicted = model(x)
+        predicted = model(resumes.to(device), resumes_attention_masks.to(device), descriptions.to(device), descriptions_attention_masks.to(device))
 
-        l = criterion(x, y)
+        l = criterion(predicted, labels.flatten().to(device))
 
         l.backward()
         opt.step()
 
-        total_loss += l.cpu().detach() * x.shape[0]
+        total_loss += l.cpu().detach() * predicted.shape[0]
 
         predicted_y.append(predicted.cpu().detach())
-        true_y.append(y.cpu().detach())
+        true_y.append(labels.cpu().detach())
     
     predicted_y = torch.cat(predicted_y)
     true_y = torch.cat(true_y)
@@ -57,7 +60,8 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
 
 def validate(dataloader : torch.utils.data.DataLoader, 
              model : type[nn.Module],
-             criterion : type[nn.Module]):
+             criterion : type[nn.Module],
+             device : torch.device):
     """
     Validate the model's mid-epoch progress.
 
@@ -69,6 +73,8 @@ def validate(dataloader : torch.utils.data.DataLoader,
         The model to validate with.
     criterion : nn.Module
         The loss function.
+    device : torch.device
+        The device to put the tensors on.
 
     Returns
     -------
@@ -82,16 +88,16 @@ def validate(dataloader : torch.utils.data.DataLoader,
     predicted_y = []
     true_y = []
 
-    for (x, y) in dataloader:
-        with torch.no_grad():
-            predicted = model(x)
+    for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in dataloader:
 
-        l = criterion(x, y)
+        predicted = model(resumes.to(device), resumes_attention_masks.to(device), descriptions.to(device), descriptions_attention_masks.to(device))
 
-        total_loss += l.cpu().detach() * x.shape[0]
+        l = criterion(predicted, labels.to(device))
+
+        total_loss += l.cpu().detach() * predicted.shape[0]
 
         predicted_y.append(predicted.cpu().detach())
-        true_y.append(y.cpu().detach())
+        true_y.append(labels.cpu().detach())
     
     predicted_y = torch.cat(predicted_y)
     true_y = torch.cat(true_y)
@@ -103,7 +109,8 @@ def validate(dataloader : torch.utils.data.DataLoader,
     return avg_loss 
 
 def test(dataloader : torch.utils.data.DataLoader, 
-         model : type[nn.Module]):
+         model : type[nn.Module],
+         device : torch.device):
     """
     Test the model's full progress.
 
@@ -113,6 +120,8 @@ def test(dataloader : torch.utils.data.DataLoader,
         The loaded and pre-configured dataset to iterate over.
     model : nn.Module
         The model to test with.
+    device : torch.device
+        The device to put the tensors on.
 
     Returns
     -------
@@ -120,17 +129,16 @@ def test(dataloader : torch.utils.data.DataLoader,
     """
     model.eval()
 
-    total_loss = 0
-
     predicted_y = []
     true_y = []
 
-    for (x, y) in dataloader:
-        with torch.no_grad():
-            predicted = model(x)
+
+    for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in dataloader:
+
+        predicted = model(resumes.to(device), resumes_attention_masks.to(device), descriptions.to(device), descriptions_attention_masks.to(device))
 
         predicted_y.append(predicted.cpu().detach())
-        true_y.append(y.cpu().detach())
+        true_y.append(labels.cpu().detach())
     
     predicted_y = torch.cat(predicted_y)
     true_y = torch.cat(true_y)

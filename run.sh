@@ -8,4 +8,4 @@
 source $HOME/miniconda3/bin/activate
 conda activate JobRecommender
 
-srun --unbuffered python -u main.py
+srun --unbuffered python -u main.py --device 6

@@ -9,6 +9,8 @@ import numpy as np
 
 import transformers
 
+from .config import PRETRAINED_BERT_MAX_TOKENS
+
 class Data(torch.utils.data.Dataset):
     def __init__(self, df : pl.DataFrame, args : Namespace):
         """
@@ -37,29 +39,19 @@ class Data(torch.utils.data.Dataset):
         # Use pre-trained WordPiece tokenizer.. it'll break down the tokens better than one trained on our data.
 
         # https://huggingface.co//google-bert/bert-base-uncased
+        print("loading pretrained")
         tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-uncased")
+        print("loaded pretrained")
+
+        # check that max_tokens is a multiple of PRETRAINED_BERT_MAX_TOKENS (512)
+        assert self.args.max_tokens % PRETRAINED_BERT_MAX_TOKENS == 0 and self.args.max_tokens > 0, "The configurated max_tokens value must be a multiple of 512, which is greater than 0."
 
         # tokenize resumes...
-        resumes_encoding : transformers.BatchEncoding = tokenizer(
-            df.select(pl.col("resume_text")).to_numpy().flatten().tolist(), 
-            return_tensors='pt', 
-            padding='max_length', 
-            max_length=self.args.max_tokens
-        )
-
-        self.resumes : torch.Tensor = resumes_encoding.input_ids
-        self.resumes_attention_mask : torch.Tensor = resumes_encoding.attention_mask
+        self.resumes, self.resumes_attention_mask = self.tokenize_and_chunk(tokenizer, df, "resume_text")
 
         # tokenize descriptions...
-        descriptions_encoding : transformers.BatchEncoding = tokenizer(
-            df.select(pl.col("job_description_text")).to_numpy().flatten().tolist(), 
-            return_tensors='pt', 
-            padding='max_length', 
-            max_length=self.args.max_tokens
-        )
-
-        self.descriptions : torch.Tensor = descriptions_encoding.input_ids
-        self.descriptions_attention_mask : torch.Tensor = descriptions_encoding.attention_mask
+        self.descriptions, self.descriptions_attention_mask = self.tokenize_and_chunk(tokenizer, df, "job_description_text")
+        
     
     def _label_func(self, s: str) -> float:
         """
@@ -84,6 +76,48 @@ class Data(torch.utils.data.Dataset):
                 return 1.0
             case _:
                 raise ValueError(f'Expected "label" column to contain any of: ["No Fit", "Potential Fit", "Good Fit"]. Found: "{s}"')
+
+    def tokenize_and_chunk(self, tokenizer: transformers.BertTokenizerFast, df: pl.DataFrame, col: str) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Tokenize the strings and split them into chunks of PRETRAINED_BERT_MAX_TOKENS (512). The pre-trained BERT model can only handle 512 tokens at a time.
+
+        Parameters
+        ----------
+
+        tokenizer : transformers.BertTokenizerFast
+            The pre-trained BERT tokenizer.
+        
+        df : pl.DataFrame
+            The dataset that the strings are coming from
+
+        col : str
+            The column in the dataset that the strings are located in
+
+        Returns
+        -------
+
+        A **2-tuple** containing **(1)** the encoded token sequence and **(2)** the attention mask for the sequence.
+
+        """
+
+        encoding : transformers.BatchEncoding = tokenizer(
+            df.select(pl.col(col)).to_numpy().flatten().tolist(), 
+            return_tensors='pt', 
+            padding='max_length', 
+            max_length=self.args.max_tokens
+        )
+
+        ids : torch.Tensor = encoding.input_ids
+        attention_mask : torch.Tensor = encoding.attention_mask
+
+        ## Reshape them into chunks of size PRETRAINED_BERT_MAX_TOKENS (512)
+        # No need to check for perfect division, already done in __init__()
+        n = ids.shape[0]
+        ids = ids.reshape(n, self.args.max_tokens//PRETRAINED_BERT_MAX_TOKENS, PRETRAINED_BERT_MAX_TOKENS)
+        attention_mask = ids.reshape(n, self.args.max_tokens//PRETRAINED_BERT_MAX_TOKENS, PRETRAINED_BERT_MAX_TOKENS)
+
+        return ids, attention_mask
+
 
     def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
