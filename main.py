@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 import polars as pl
 
-from .lib import parse_args, Data, Model, train_one_epoch, test, validate
+from lib import parse_args, Data, Model, train_one_epoch, test, validate, download_dataset
 
 def main(args : argparse.Namespace):
     
@@ -41,4 +41,5 @@ def main(args : argparse.Namespace):
 
 if __name__ == "__main__":
     args = parse_args()
+    download_dataset(args)
     main(args)

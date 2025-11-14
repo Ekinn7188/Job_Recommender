@@ -7,7 +7,7 @@ class Model(nn.Module):
 
         self.FCL = nn.Linear(10,1, dtype=torch.float32)
     
-    def forward(self, x : torch.Tesnor):
+    def forward(self, x : torch.Tensor):
         x = self.FCL(x)
 
         return x

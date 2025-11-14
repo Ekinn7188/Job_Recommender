@@ -1,1 +1,6 @@
 slurm*.out
+
+**/__pycache__
+
+experiments/
+dataset/

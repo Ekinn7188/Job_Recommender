@@ -6,7 +6,7 @@ def parse_args() -> argparse.Namespace:
 
     # --------
 
-    parser.add_argument("--dataset_dir", default="./Dataset")
+    parser.add_argument("--dataset_dir", default="./dataset")
     parser.add_argument("--output_dir", default="./out")
 
     # --------
