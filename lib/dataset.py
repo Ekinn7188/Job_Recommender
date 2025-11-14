@@ -28,10 +28,10 @@ class Data(torch.utils.data.Dataset):
         self.df = df
         self.args = args
 
-        # give labels probability
+        ## Give labels probability
         
         self.labels = df.select(pl.col("label").map_elements(self._label_func, return_dtype=pl.Float32)).to_numpy()
-        self.labels = torch.from_numpy(self.labels)
+        self.labels = torch.from_numpy(self.labels.copy()) # .copy() because array is "not writable"?
 
         ## tokenize for BERT
         # Use pre-trained WordPiece tokenizer.. it'll break down the tokens better than one trained on our data.
@@ -40,24 +40,26 @@ class Data(torch.utils.data.Dataset):
         tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-uncased")
 
         # tokenize resumes...
-        self.resumes : transformers.BatchEncoding = tokenizer(
+        resumes_encoding : transformers.BatchEncoding = tokenizer(
             df.select(pl.col("resume_text")).to_numpy().flatten().tolist(), 
             return_tensors='pt', 
             padding='max_length', 
             max_length=self.args.max_tokens
         )
 
-        self.resumes : torch.Tensor = self.resumes.input_ids
+        self.resumes : torch.Tensor = resumes_encoding.input_ids
+        self.resumes_attention_mask : torch.Tensor = resumes_encoding.attention_mask
 
         # tokenize descriptions...
-        self.descriptions : transformers.BatchEncoding = tokenizer(
+        descriptions_encoding : transformers.BatchEncoding = tokenizer(
             df.select(pl.col("job_description_text")).to_numpy().flatten().tolist(), 
             return_tensors='pt', 
             padding='max_length', 
             max_length=self.args.max_tokens
         )
 
-        self.descriptions : torch.Tensor = self.descriptions.input_ids
+        self.descriptions : torch.Tensor = descriptions_encoding.input_ids
+        self.descriptions_attention_mask : torch.Tensor = descriptions_encoding.attention_mask
     
     def _label_func(self, s: str) -> float:
         """
@@ -83,7 +85,7 @@ class Data(torch.utils.data.Dataset):
             case _:
                 raise ValueError(f'Expected "label" column to contain any of: ["No Fit", "Potential Fit", "Good Fit"]. Found: "{s}"')
 
-    def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor, float]:
+    def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Get individual rows from the dataset at a specified index.
 
@@ -95,10 +97,16 @@ class Data(torch.utils.data.Dataset):
 
         Returns
         -------
-        A 3-tuple containing (1) the tokenized resume text, (2) the tokenized description text, and (3) the corresponding fit probability.
+        A **5-tuple** containing **(1)** the tokenized resume text, **(2)** the resume text's attention mask, 
+        **(3)** the tokenized description text, **(4)** the description text's attention mask,
+        and **(5)** the corresponding fit probability.
         """
 
-        return self.resumes[i], self.descriptions[i], self.labels[i]
+        return (
+            self.resumes[i], self.resumes_attention_mask[i],
+            self.descriptions[i], self.descriptions_attention_mask[i],
+            self.labels[i]
+        )
     
     def __len__(self) -> int:
         """
