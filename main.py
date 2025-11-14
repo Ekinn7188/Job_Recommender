@@ -33,7 +33,6 @@ def main(args : argparse.Namespace):
     train_dataset = Data(train_df, args)
     test_dataset = Data(test_df, args)
     val_dataset = Data(val_df, args)
-    exit(0)
 
     train_dataloader = DataLoader(train_dataset)
     test_dataloader = DataLoader(test_dataset)
