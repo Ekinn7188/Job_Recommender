@@ -1,4 +1,5 @@
 import argparse 
+import os
 
 import torch
 from torch.utils.data import DataLoader
@@ -9,15 +10,30 @@ import polars as pl
 from lib import parse_args, Data, Model, train_one_epoch, test, validate, download_dataset
 
 def main(args : argparse.Namespace):
-    
-    df = pl.DataFrame()
+    ## Read dataset CSVs
 
-    train_df, test_df = train_test_split(df, train_size=0.80, test_size=0.20)
-    train_df, val_df  = train_test_split(train_df, train_size=0.90, test_size=0.10)
+    train_path = os.path.join(args.dataset_dir, "train.csv")
+    test_path = os.path.join(args.dataset_dir, "test.csv")
 
-    train_dataset = Data(train_df)
-    test_dataset = Data(test_df)
-    val_dataset = Data(val_df)
+    train_df = pl.read_csv(train_path)
+    test_df = pl.read_csv(test_path)
+
+    ## Give random 10% of test.csv to validation
+    # Random because dataset is sorted by label by default
+    test_df = test_df.sample(fraction=1, shuffle=True, seed=0) # seed=0 for reproducibility
+
+    split = int(test_df.shape[0] * 0.10)
+    val_df, test_df = test_df.head(split), test_df.tail(-split)
+
+    # Prepare data
+
+
+    # val_dataset = Data(val_df)
+
+    train_dataset = Data(train_df, args)
+    test_dataset = Data(test_df, args)
+    val_dataset = Data(val_df, args)
+    exit(0)
 
     train_dataloader = DataLoader(train_dataset)
     test_dataloader = DataLoader(test_dataset)

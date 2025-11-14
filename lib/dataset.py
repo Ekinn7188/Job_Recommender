@@ -5,25 +5,117 @@ from argparse import Namespace
 from tqdm import tqdm
 import requests
 import os
-import time
+import numpy as np 
+
+import transformers
 
 class Data(torch.utils.data.Dataset):
-    def __init__(self, df : pl.DataFrame):
+    def __init__(self, df : pl.DataFrame, args : Namespace):
+        """
+        Initialize the dataset.
+
+        Parameters
+        ----------
+
+        df : polars.DataFrame
+            The dataframe to process. Must contain columns `["resume_text", "job_description_text", "label"]`. </br>
+            The column named `label` must contain rows holding `["No Fit", "Potential Fit", "Good Fit"]`.
+        args : argparse.Namespace
+            The arguments passed through the command line.
+        """
         super(Data, self).__init__()
 
         self.df = df
+        self.args = args
 
-        # TODO do some processing
-    
-    def __getitem__(self, i: int):
-        # TODO retrieve data
-        return torch.tensor([0])
-    
-    def __len__(self):
-        # TODO return dataset length
-        return 0
+        # give labels probability
+        
+        self.labels = df.select(pl.col("label").map_elements(self._label_func, return_dtype=pl.Float32)).to_numpy()
+        self.labels = torch.from_numpy(self.labels)
 
-def download_dataset(args: Namespace):
+        ## tokenize for BERT
+        # Use pre-trained WordPiece tokenizer.. it'll break down the tokens better than one trained on our data.
+
+        # https://huggingface.co//google-bert/bert-base-uncased
+        tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-uncased")
+
+        # tokenize resumes...
+        self.resumes : transformers.BatchEncoding = tokenizer(
+            df.select(pl.col("resume_text")).to_numpy().flatten().tolist(), 
+            return_tensors='pt', 
+            padding='max_length', 
+            max_length=self.args.max_tokens
+        )
+
+        self.resumes : torch.Tensor = self.resumes.input_ids
+
+        # tokenize descriptions...
+        self.descriptions : transformers.BatchEncoding = tokenizer(
+            df.select(pl.col("job_description_text")).to_numpy().flatten().tolist(), 
+            return_tensors='pt', 
+            padding='max_length', 
+            max_length=self.args.max_tokens
+        )
+
+        self.descriptions : torch.Tensor = self.descriptions.input_ids
+    
+    def _label_func(self, s: str) -> float:
+        """
+        Map labels to probabilities.
+
+        Parameters
+        ----------
+
+        s : str
+            The label to map. Must be one of `["No Fit", "Potential Fit", "Good Fit"]`
+
+        Returns
+        -------
+        The mapped probability.
+        """
+        match s.upper():
+            case "NO FIT":
+                return 0.0
+            case "POTENTIAL FIT":
+                return self.args.potential_fit_probabiltiy
+            case "GOOD FIT":
+                return 1.0
+            case _:
+                raise ValueError(f'Expected "label" column to contain any of: ["No Fit", "Potential Fit", "Good Fit"]. Found: "{s}"')
+
+    def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor, float]:
+        """
+        Get individual rows from the dataset at a specified index.
+
+        Parameters
+        ----------
+
+        i : int
+            The index to access.
+
+        Returns
+        -------
+        A 3-tuple containing (1) the tokenized resume text, (2) the tokenized description text, and (3) the corresponding fit probability.
+        """
+
+        return self.resumes[i], self.descriptions[i], self.labels[i]
+    
+    def __len__(self) -> int:
+        """
+        Get the number of rows in the dataset.
+        """
+        return self.labels.shape[0]
+
+def download_dataset(args: Namespace) -> None:
+    """
+    Downloads dataset CSV files if `args.dataset_dir` does not exist.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        The arguments passed through the command line.
+    """
+
     if os.path.exists(args.dataset_dir):
         return
     
@@ -70,5 +162,3 @@ def download_dataset(args: Namespace):
                     progress_bar.update(chunk_size)
         
         progress_bar.close()
-
-    exit(0)

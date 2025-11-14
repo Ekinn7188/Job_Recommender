@@ -5,6 +5,25 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
                     model : type[nn.Module],
                     criterion : type[nn.Module], 
                     opt : type[torch.optim.Optimizer]):
+    """
+    Train the model for one epoch.
+
+    Parameters
+    ----------
+    dataloader : torch.utils.data.Dataloader
+        The loaded and pre-configured dataset to iterate over.
+    model : nn.Module
+        The model to train with.
+    criterion : nn.Module
+        The loss function.
+    opt : torch.optim.Optimizer
+        The optimizer to update the model's weights.
+
+    Returns
+    -------
+    TBD
+    """
+
     model.train()
 
     total_loss = 0
@@ -39,6 +58,23 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
 def validate(dataloader : torch.utils.data.DataLoader, 
              model : type[nn.Module],
              criterion : type[nn.Module]):
+    """
+    Validate the model's mid-epoch progress.
+
+    Parameters
+    ----------
+    dataloader : torch.utils.data.Dataloader
+        The loaded and pre-configured dataset to iterate over.
+    model : nn.Module
+        The model to validate with.
+    criterion : nn.Module
+        The loss function.
+
+    Returns
+    -------
+    TBD
+    """
+
     model.eval()
 
     total_loss = 0
@@ -68,6 +104,20 @@ def validate(dataloader : torch.utils.data.DataLoader,
 
 def test(dataloader : torch.utils.data.DataLoader, 
          model : type[nn.Module]):
+    """
+    Test the model's full progress.
+
+    Parameters
+    ----------
+    dataloader : torch.utils.data.Dataloader
+        The loaded and pre-configured dataset to iterate over.
+    model : nn.Module
+        The model to test with.
+
+    Returns
+    -------
+    TBD
+    """
     model.eval()
 
     total_loss = 0
