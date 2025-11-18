@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from .metrics import get_metrics
 
 def train_one_epoch(dataloader : torch.utils.data.DataLoader, 
                     model : type[nn.Module],
@@ -29,8 +30,6 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
 
     model.train()
 
-    total_loss = 0
-
     predicted_y = []
     true_y = []
 
@@ -44,7 +43,7 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
         l.backward()
         opt.step()
 
-        total_loss += l.cpu().detach() * predicted.shape[0]
+        l.cpu().detach()
 
         predicted_y.append(predicted.cpu().detach())
         true_y.append(labels.cpu().detach())
@@ -52,15 +51,12 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
     predicted_y = torch.cat(predicted_y)
     true_y = torch.cat(true_y)
 
-    avg_loss = total_loss / len(dataloader.dataset)
+    avg_MAE, spearman_coeff, pearson_coeff = get_metrics(predicted_y, true_y)
 
-    # TODO more metrics depending on what we do
-
-    return avg_loss
+    return avg_MAE, spearman_coeff, pearson_coeff
 
 def validate(dataloader : torch.utils.data.DataLoader, 
              model : type[nn.Module],
-             criterion : type[nn.Module],
              device : torch.device):
     """
     Validate the model's mid-epoch progress.
@@ -83,8 +79,6 @@ def validate(dataloader : torch.utils.data.DataLoader,
 
     model.eval()
 
-    total_loss = 0
-
     predicted_y = []
     true_y = []
 
@@ -92,21 +86,15 @@ def validate(dataloader : torch.utils.data.DataLoader,
 
         predicted = model(resumes.to(device), resumes_attention_masks.to(device), descriptions.to(device), descriptions_attention_masks.to(device))
 
-        l = criterion(predicted, labels.to(device))
-
-        total_loss += l.cpu().detach() * predicted.shape[0]
-
         predicted_y.append(predicted.cpu().detach())
         true_y.append(labels.cpu().detach())
     
     predicted_y = torch.cat(predicted_y)
     true_y = torch.cat(true_y)
+    
+    avg_MAE, spearman_coeff, pearson_coeff = get_metrics(predicted_y, true_y)
 
-    avg_loss = total_loss / len(dataloader.dataset)
-
-    # TODO more metrics depending on what we do
-
-    return avg_loss 
+    return avg_MAE, spearman_coeff, pearson_coeff 
 
 def test(dataloader : torch.utils.data.DataLoader, 
          model : type[nn.Module],
@@ -143,6 +131,6 @@ def test(dataloader : torch.utils.data.DataLoader,
     predicted_y = torch.cat(predicted_y)
     true_y = torch.cat(true_y)
 
-    # TODO calculate some metrics depending on what we do
+    avg_MAE, spearman_coeff, pearson_coeff = get_metrics(predicted_y, true_y)
 
-    return # some metrics
+    return avg_MAE, spearman_coeff, pearson_coeff

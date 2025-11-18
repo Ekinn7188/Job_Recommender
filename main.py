@@ -4,13 +4,15 @@ import os
 import torch
 from torch.utils.data import DataLoader
 
-from sklearn.model_selection import train_test_split
 import polars as pl
 import numpy as np
 
 from lib import parse_args, Data, TempModel, SharedBERT, train_one_epoch, test, validate, download_dataset
 
 def main(args : argparse.Namespace):
+    # make output dirs
+    os.makedirs(os.path.join(args.output_dir, args.version), exist_ok=True)
+
     # Set random seeds for reproducibility
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -64,21 +66,65 @@ def main(args : argparse.Namespace):
         case "WORD2VEC":
             model = TempModel().to(DEVICE)
         case _:
-            raise ValueError(f'Invalid model type selected. Must be one of: ["SharedBERT", "SplitBERT", "ML", "WORD2VEC"]. Currently selected: {args.model_type}.')
+            raise ValueError(f'Invalid model type selected. Must be one of: ["SharedBERT", "SplitBERT", "ML", "Word2Vec"]. Currently selected: {args.model_type}.')
     
     opt = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate)
     criterion = torch.nn.L1Loss() # MAE loss
 
 
+    records = []
+    patience = args.patience
+    best_val_loss = float("inf")
+
     print(f"Starting training...\n")
 
     # Start training
     for e in range(args.epochs):
-        train_one_epoch(train_dataloader, model, criterion, opt, DEVICE)
+        training_MAE, training_spearman_coeff, training_pearson_coeff  = train_one_epoch(train_dataloader, model, criterion, opt, DEVICE)
 
-        validate(val_dataloader, model, criterion, DEVICE)
+        val_MAE, val_spearman_coeff, val_pearson_coeff  = validate(val_dataloader, model, criterion, DEVICE)
 
-    test(test_dataloader, model, DEVICE)
+        records.append({
+            "epoch": e+1,
+            "train_MAE": training_MAE,
+            "training_spearman": training_spearman_coeff,
+            "training_pearson": training_pearson_coeff,
+            "validation_MAE": val_MAE,
+            "validation_spearman": val_spearman_coeff,
+            "validation_pearson": val_pearson_coeff,
+        })
+
+
+        print(
+            f"Epoch [{e + 1:02d}/{args.epochs}] "
+            f"Train MAE Loss: {training_MAE:.4f} | Train Spearman Corr. {training_spearman_coeff:.4f} | Train Pearson Corr. {training_pearson_coeff:.4f}"
+            f"Val Loss: {val_MAE:.4f} | Val Spearman Corr. {val_spearman_coeff:.4f} | Val Pearson Corr. {val_pearson_coeff:.4f}"
+        )
+
+        if best_val_loss > val_MAE:
+            best_val_loss = val_MAE
+            patience = args.patience
+        else:
+            patience -= 1
+            if patience < 0:
+                print("Stopping fold early...")
+                break
+
+    # Save per-fold logs
+    log_df = pl.DataFrame(records)
+    log_path = os.path.join(args.output_dir, args.version, f"output_log.csv")
+    log_df.write_csv(log_path)
+
+    test_MAE, test_spearman_coeff, test_pearson_coeff  = test(test_dataloader, model, DEVICE)
+
+    
+    test_results = pl.DataFrame({
+        "test_MAE": test_MAE,
+        "test_spearman": test_spearman_coeff,
+        "test_pearson": test_pearson_coeff,
+    })
+    log_path = os.path.join(args.output_dir, args.version, f"test_results.csv")
+    test_results.write_csv(log_path)
 
 
 

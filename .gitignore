@@ -4,5 +4,6 @@ slurm*.out
 
 experiments/
 dataset/
+out/
 
 nvidia-smi.sh
