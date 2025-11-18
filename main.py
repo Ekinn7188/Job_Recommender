@@ -43,9 +43,9 @@ def main(args : argparse.Namespace):
     val_dataset = Data(val_df, args)
     print("Finished val\n")
 
-    train_dataloader = DataLoader(train_dataset)
-    test_dataloader = DataLoader(test_dataset)
-    val_dataloader = DataLoader(val_dataset)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
 
     # Get device
 
