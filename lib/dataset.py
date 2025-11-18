@@ -39,9 +39,9 @@ class Data(torch.utils.data.Dataset):
         # Use pre-trained WordPiece tokenizer.. it'll break down the tokens better than one trained on our data.
 
         # https://huggingface.co//google-bert/bert-base-uncased
-        print("loading pretrained")
+        print("loading pretrained BERT tokenizer...")
         tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-uncased")
-        print("loaded pretrained")
+        print("loaded pretrained BERT tokenizer.")
 
         # check that max_tokens is a multiple of PRETRAINED_BERT_MAX_TOKENS (512)
         assert self.args.max_tokens % PRETRAINED_BERT_MAX_TOKENS == 0 and self.args.max_tokens > 0, "The configurated max_tokens value must be a multiple of 512, which is greater than 0."
