@@ -36,11 +36,12 @@ def main(args : argparse.Namespace):
 
     print("Preparing datasets...\n")
 
+
     train_dataset = Data(train_df, args)
     print("Finished train")
-    test_dataset = Data(test_df, args)
+    test_dataset = Data(test_df, args, tokenizer=train_dataset.tokenizer)
     print("Finished test")
-    val_dataset = Data(val_df, args)
+    val_dataset = Data(val_df, args, tokenizer=train_dataset.tokenizer)
     print("Finished val\n")
 
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
@@ -49,7 +50,7 @@ def main(args : argparse.Namespace):
 
     # Get device
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.device
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(args.device)
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Your model is running on {DEVICE}...\n")
     
@@ -58,16 +59,23 @@ def main(args : argparse.Namespace):
 
     match (args.model_type.upper()):
         case "SHAREDBERT":
-            model = SharedBERT(args).to(DEVICE)
+            model = SharedBERT(args)
         case "SPLITBERT":
-            model = TempModel().to(DEVICE)
+            model = TempModel()
         case "ML":
-            model = TempModel().to(DEVICE)
+            model = TempModel()
         case "WORD2VEC":
-            model = TempModel().to(DEVICE)
+            model = TempModel()
         case _:
             raise ValueError(f'Invalid model type selected. Must be one of: ["SharedBERT", "SplitBERT", "ML", "Word2Vec"]. Currently selected: {args.model_type}.')
     
+    # Multi-GPU
+    if torch.cuda.device_count() > 1:
+        print("Using", torch.cuda.device_count(), "GPUs with DataParallel")
+        model = torch.nn.DataParallel(model)
+
+    model = model.to(DEVICE)
+
     opt = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate)
     criterion = torch.nn.L1Loss() # MAE loss
 
@@ -93,6 +101,14 @@ def main(args : argparse.Namespace):
             "validation_spearman": val_spearman_coeff,
             "validation_pearson": val_pearson_coeff,
         })
+
+
+        model_path = os.path.join(args.output_dir, args.version, f"model_epoch_{e+1}.csv")
+
+        if torch.cuda.device_count() > 1:
+            torch.save(model.module.state_dict(), model_path)
+        else:
+            torch.save(model.state_dict(), model_path)
 
 
         print(

@@ -19,11 +19,11 @@ def parse_args() -> argparse.Namespace:
     # --------
 
     parser.add_argument("--seed", default=0, type=int)
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--device", default="cpu", type=str)
     parser.add_argument("--model_type", default="SharedBERT", choices=["SharedBERT", "SplitBERT", "ML", "Word2Vec"])
     parser.add_argument("--epochs", default=20, type=int)
     parser.add_argument("--learning_rate", default=1e-5, type=float)
-    parser.add_argument("--batch_size", default=32, type=float)
+    parser.add_argument("--batch_size", default=8, type=float)
     parser.add_argument('--patience', type = int, default = 5, help = "# of epochs before early stopping")
 
     parser.add_argument("--potential_fit_probabiltiy", default=0.8, type=float)

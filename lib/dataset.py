@@ -12,7 +12,7 @@ import transformers
 from .config import PRETRAINED_BERT_MAX_TOKENS
 
 class Data(torch.utils.data.Dataset):
-    def __init__(self, df : pl.DataFrame, args : Namespace):
+    def __init__(self, df : pl.DataFrame, args : Namespace, tokenizer : transformers.AutoTokenizer = None):
         """
         Initialize the dataset.
 
@@ -27,6 +27,8 @@ class Data(torch.utils.data.Dataset):
         """
         super(Data, self).__init__()
 
+        self.tokenizer = tokenizer
+
         self.df = df
         self.args = args
 
@@ -39,18 +41,19 @@ class Data(torch.utils.data.Dataset):
         # Use pre-trained WordPiece tokenizer.. it'll break down the tokens better than one trained on our data.
 
         # https://huggingface.co//google-bert/bert-base-uncased
-        print("loading pretrained BERT tokenizer...")
-        tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-uncased")
-        print("loaded pretrained BERT tokenizer.")
+        if not self.tokenizer:
+            print("loading pretrained BERT tokenizer...")
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-uncased")
+            print("loaded pretrained BERT tokenizer.\n")
 
         # check that max_tokens is a multiple of PRETRAINED_BERT_MAX_TOKENS (512)
         assert self.args.max_tokens % PRETRAINED_BERT_MAX_TOKENS == 0 and self.args.max_tokens > 0, "The configurated max_tokens value must be a multiple of 512, which is greater than 0."
 
         # tokenize resumes...
-        self.resumes, self.resumes_attention_mask = self.tokenize_and_chunk(tokenizer, df, "resume_text")
+        self.resumes, self.resumes_attention_mask = self.tokenize_and_chunk(self.tokenizer, df, "resume_text")
 
         # tokenize descriptions...
-        self.descriptions, self.descriptions_attention_mask = self.tokenize_and_chunk(tokenizer, df, "job_description_text")
+        self.descriptions, self.descriptions_attention_mask = self.tokenize_and_chunk(self.tokenizer, df, "job_description_text")
         
     
     def _label_func(self, s: str) -> float:
@@ -114,7 +117,7 @@ class Data(torch.utils.data.Dataset):
         # No need to check for perfect division, already done in __init__()
         n = ids.shape[0]
         ids = ids.reshape(n, self.args.max_tokens//PRETRAINED_BERT_MAX_TOKENS, PRETRAINED_BERT_MAX_TOKENS)
-        attention_mask = ids.reshape(n, self.args.max_tokens//PRETRAINED_BERT_MAX_TOKENS, PRETRAINED_BERT_MAX_TOKENS)
+        attention_mask = attention_mask.reshape(n, self.args.max_tokens//PRETRAINED_BERT_MAX_TOKENS, PRETRAINED_BERT_MAX_TOKENS)
 
         return ids, attention_mask
 

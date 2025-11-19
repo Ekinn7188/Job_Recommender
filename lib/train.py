@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from .metrics import get_metrics
+from tqdm import tqdm
 
 def train_one_epoch(dataloader : torch.utils.data.DataLoader, 
                     model : type[nn.Module],
@@ -33,7 +34,7 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
     predicted_y = []
     true_y = []
 
-    for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in dataloader:
+    for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in tqdm(dataloader):
         opt.zero_grad()
 
         predicted = model(resumes.to(device), resumes_attention_masks.to(device), descriptions.to(device), descriptions_attention_masks.to(device))
@@ -82,12 +83,17 @@ def validate(dataloader : torch.utils.data.DataLoader,
     predicted_y = []
     true_y = []
 
-    for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in dataloader:
+    with torch.no_grad():
+        for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in tqdm(dataloader):
+            predicted = model(
+                resumes.to(device),
+                resumes_attention_masks.to(device),
+                descriptions.to(device),
+                descriptions_attention_masks.to(device),
+            )
 
-        predicted = model(resumes.to(device), resumes_attention_masks.to(device), descriptions.to(device), descriptions_attention_masks.to(device))
-
-        predicted_y.append(predicted.cpu().detach())
-        true_y.append(labels.cpu().detach())
+            predicted_y.append(predicted.cpu().detach())
+            true_y.append(labels.cpu().detach())
     
     predicted_y = torch.cat(predicted_y)
     true_y = torch.cat(true_y)
@@ -121,12 +127,17 @@ def test(dataloader : torch.utils.data.DataLoader,
     true_y = []
 
 
-    for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in dataloader:
+    with torch.no_grad():
+        for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in tqdm(dataloader):
+            predicted = model(
+                resumes.to(device),
+                resumes_attention_masks.to(device),
+                descriptions.to(device),
+                descriptions_attention_masks.to(device),
+            )
 
-        predicted = model(resumes.to(device), resumes_attention_masks.to(device), descriptions.to(device), descriptions_attention_masks.to(device))
-
-        predicted_y.append(predicted.cpu().detach())
-        true_y.append(labels.cpu().detach())
+            predicted_y.append(predicted.cpu().detach())
+            true_y.append(labels.cpu().detach())
     
     predicted_y = torch.cat(predicted_y)
     true_y = torch.cat(true_y)

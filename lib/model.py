@@ -95,12 +95,13 @@ class SharedBERT(nn.Module):
 
         output = self.similarity(resume_encoding, description_encoding)
 
+        output = output.unsqueeze(1) # bring from (B,) to (B, 1)
+
         # Learn map from [-1, 1] to [0, 1]
         output = self.mapping(output)
-
         output = self.sigmoid(output)
 
-        return output
+        return output.flatten()
 
 class TempModel(nn.Module):
     def __init__(self):
