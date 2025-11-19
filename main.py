@@ -90,7 +90,7 @@ def main(args : argparse.Namespace):
     for e in range(args.epochs):
         training_MAE, training_spearman_coeff, training_pearson_coeff  = train_one_epoch(train_dataloader, model, criterion, opt, DEVICE)
 
-        val_MAE, val_spearman_coeff, val_pearson_coeff  = validate(val_dataloader, model, criterion, DEVICE)
+        val_MAE, val_spearman_coeff, val_pearson_coeff  = validate(val_dataloader, model, DEVICE)
 
         records.append({
             "epoch": e+1,
