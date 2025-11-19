@@ -103,7 +103,7 @@ def main(args : argparse.Namespace):
         })
 
 
-        model_path = os.path.join(args.output_dir, args.version, f"model_epoch_{e+1}.csv")
+        model_path = os.path.join(args.output_dir, args.version, f"model_epoch_{e+1}.pt")
 
         if torch.cuda.device_count() > 1:
             torch.save(model.module.state_dict(), model_path)
