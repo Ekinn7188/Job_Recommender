@@ -43,7 +43,7 @@ class Data(torch.utils.data.Dataset):
         # https://huggingface.co//google-bert/bert-base-uncased
         if not self.tokenizer:
             print("loading pretrained BERT tokenizer...")
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-uncased")
+            self.tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-uncased")
             print("loaded pretrained BERT tokenizer.\n")
 
         # check that max_tokens is a multiple of PRETRAINED_BERT_MAX_TOKENS (512)
@@ -80,14 +80,14 @@ class Data(torch.utils.data.Dataset):
             case _:
                 raise ValueError(f'Expected "label" column to contain any of: ["No Fit", "Potential Fit", "Good Fit"]. Found: "{s}"')
 
-    def tokenize_and_chunk(self, tokenizer: transformers.BertTokenizerFast, df: pl.DataFrame, col: str) -> tuple[torch.Tensor, torch.Tensor]:
+    def tokenize_and_chunk(self, tokenizer: transformers.BertTokenizer, df: pl.DataFrame, col: str) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Tokenize the strings and split them into chunks of PRETRAINED_BERT_MAX_TOKENS (512). The pre-trained BERT model can only handle 512 tokens at a time.
 
         Parameters
         ----------
 
-        tokenizer : transformers.BertTokenizerFast
+        tokenizer : transformers.BertTokenizer
             The pre-trained BERT tokenizer.
         
         df : pl.DataFrame

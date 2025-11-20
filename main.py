@@ -35,8 +35,6 @@ def main(args : argparse.Namespace):
     # Prepare data
 
     print("Preparing datasets...\n")
-
-
     train_dataset = Data(train_df, args)
     print("Finished train")
     test_dataset = Data(test_df, args, tokenizer=train_dataset.tokenizer)
@@ -76,7 +74,11 @@ def main(args : argparse.Namespace):
 
     model = model.to(DEVICE)
 
-    opt = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate)
+    if torch.cuda.device_count() > 1:
+        opt = torch.optim.Adam(params=model.module.parameters(), lr=args.learning_rate)
+    else:
+        opt = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate)
+        
     criterion = torch.nn.L1Loss() # MAE loss
 
 
@@ -114,7 +116,7 @@ def main(args : argparse.Namespace):
         print(
             f"Epoch [{e + 1:02d}/{args.epochs}] "
             f"Train MAE Loss: {training_MAE:.4f} | Train Spearman Corr. {training_spearman_coeff:.4f} | Train Pearson Corr. {training_pearson_coeff:.4f}"
-            f"Val Loss: {val_MAE:.4f} | Val Spearman Corr. {val_spearman_coeff:.4f} | Val Pearson Corr. {val_pearson_coeff:.4f}"
+            f"| Val Loss: {val_MAE:.4f} | Val Spearman Corr. {val_spearman_coeff:.4f} | Val Pearson Corr. {val_pearson_coeff:.4f}"
         )
 
         if best_val_loss > val_MAE:

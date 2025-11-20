@@ -25,7 +25,7 @@ class BERTEncoder(nn.Module):
         ## Pretrained model that matches the tokenizer
         # https://huggingface.co//google-bert/bert-base-uncased
         # It inherits from torch.nn.Module, so just treat it as anything else.
-        self.BERT_encoder = BertModel.from_pretrained("google-bert/bert-base-uncased")
+        self.BERT_encoder = BertModel.from_pretrained("bert-base-uncased")
 
         # BERT_encoder output on all chunks is shape (B, C, 178)
 
@@ -49,33 +49,17 @@ class BERTEncoder(nn.Module):
         result : torch.Tensor
             Encoded tensor of shape `(B, 178)`.
         """
-        encoded_chunks = []
+        # encoded_chunks = []
+        B, C, L = x.shape
 
-        # iterate over chunks and encode them piece-by-piece
-        for i in range(x.shape[1]):
-            loop_x = x[:, i, :]
-            loop_attn_mask = x_attn_mask[:, i, :]
+        x = x.reshape(B*C, L)
+        x_attn_mask = x_attn_mask.reshape(B*C, L)
 
-            # NOTE: Type of output from self.BERT_encoder() is transformers.modeling_outputs.BaseModelOutputWithPoolingAndCrossAttentions
-            encoded_chunk : torch.Tensor = self.BERT_encoder(input_ids=loop_x, attention_mask=loop_attn_mask).pooler_output
+        encoded_chunks = self.BERT_encoder(input_ids=x, attention_mask=x_attn_mask).pooler_output
 
-            ## restore chunk dim
-            # Shape is (B, 1, 178)
-            encoded_chunk = encoded_chunk.unsqueeze(1)
+        encoded_chunks = encoded_chunks.reshape(B, C, -1)
 
-            encoded_chunks.append(encoded_chunk)
-
-        # join back together
-        encoded_chunks = torch.cat(encoded_chunks, dim=1)
-
-        encoded_chunks = encoded_chunks.permute(0,2,1) # swap dim 1 and 2
-
-        # pool chunks
-        result = self.chunk_pooling(encoded_chunks) # shape is (B, 178, 1)
-
-        result = result.squeeze(2) # shape is (B, 178)
-
-        return result
+        return encoded_chunks
 
 class SharedBERT(nn.Module):
     def __init__(self, args):
@@ -83,22 +67,21 @@ class SharedBERT(nn.Module):
 
         self.BERT_encoder = BERTEncoder(args)
 
-        self.similarity = nn.CosineSimilarity(dim=1)
+        self.similarity = nn.CosineSimilarity(dim=2)
 
-        self.mapping = nn.Linear(1,1) # Learn mapping from similarity space to probability
+        self.mapping = nn.Linear(self.BERT_encoder.n_chunks,1) # Learn mapping from similarity space to probability
 
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, resume, resume_attn_mask, description, description_attn_mask):
-        resume_encoding = self.BERT_encoder(resume, resume_attn_mask)
-        description_encoding = self.BERT_encoder(description, description_attn_mask)
+        resume_encodings = self.BERT_encoder(resume, resume_attn_mask)
+        description_encodings = self.BERT_encoder(description, description_attn_mask)
 
-        output = self.similarity(resume_encoding, description_encoding)
 
-        output = output.unsqueeze(1) # bring from (B,) to (B, 1)
+        similarities = self.similarity(resume_encodings, description_encodings)
 
         # Learn map from [-1, 1] to [0, 1]
-        output = self.mapping(output)
+        output = self.mapping(similarities)
         output = self.sigmoid(output)
 
         return output.flatten()
