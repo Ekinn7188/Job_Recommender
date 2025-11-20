@@ -55,7 +55,7 @@ class BERTEncoder(nn.Module):
         x = x.reshape(B*C, L)
         x_attn_mask = x_attn_mask.reshape(B*C, L)
 
-        encoded_chunks = self.BERT_encoder(input_ids=x, attention_mask=x_attn_mask).last_hidden_state[:,0,:] #.pooler_output
+        encoded_chunks = self.BERT_encoder(input_ids=x, attention_mask=x_attn_mask).pooler_output
 
         encoded_chunks = encoded_chunks.reshape(B, C, -1)
 
@@ -71,21 +71,22 @@ class SharedBERT(nn.Module):
         #     p.requires_grad = False
         # self.BERT_encoder.eval()
 
-        self.similarity = nn.CosineSimilarity(dim=1)
+        self.similarity = nn.CosineSimilarity(dim=2)
 
-        self.mapping = nn.Linear(1,1) # Learn mapping from similarity space to probability
+        self.mapping = nn.Linear(self.BERT_encoder.n_chunks,1) # Learn mapping from similarity space to probability
 
-        self.sigmoid = nn.Sigmoid()
+        # self.sigmoid = nn.Sigmoid()
 
     def forward(self, resume, resume_attn_mask, description, description_attn_mask):
-        resume_encodings = self.BERT_encoder(resume, resume_attn_mask).mean(dim=1)
-        description_encodings = self.BERT_encoder(description, description_attn_mask).mean(dim=1)
+        resume_encodings = self.BERT_encoder(resume, resume_attn_mask)
+        description_encodings = self.BERT_encoder(description, description_attn_mask)
+
 
         similarities = self.similarity(resume_encodings, description_encodings)
-        similarities = similarities.unsqueeze(1)
+
         # Learn map from [-1, 1] to [0, 1]
         output = self.mapping(similarities)
-        output = self.sigmoid(output)
+        # output = self.sigmoid(output)
 
         return output.flatten()
 

@@ -11,4 +11,6 @@ conda activate JobRecommender
 
 # export CUDA_VISIBLE_DEVICES=4,5,6,7
 
-CUDA_VISIBLE_DEVICES=4,5,6,7 srun --unbuffered torchrun --nproc_per_node=4 main.py --device 4,5,6,7
+# CUDA_VISIBLE_DEVICES=0,2,4,5,6,7 srun --unbuffered torchrun --nproc_per_node=6 main.py --device 0,2,4,5,6,7
+
+srun python overfit_test.py

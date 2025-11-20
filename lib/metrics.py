@@ -13,10 +13,13 @@ def get_metrics(predicted : torch.Tensor, expected : torch.Tensor):
 
     MAE = torch.nn.L1Loss()(predicted, expected)
 
-    # collect distributed results
     if dist.is_initialized():
-        dist.all_reduce(MAE, op=dist.ReduceOp.SUM)
-        MAE = (MAE / world_size).item()
+        reduced_MAE = MAE.clone()
+        if torch.cuda.is_available():
+            reduced_MAE = reduced_MAE.cuda() # tensor operations must be done on cuda
+
+        dist.all_reduce(reduced_MAE, op=dist.ReduceOp.SUM)
+        MAE = (reduced_MAE / world_size).item()
     else:
         MAE = MAE.item()
 
