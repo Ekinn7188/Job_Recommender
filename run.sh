@@ -9,4 +9,6 @@
 source $HOME/miniconda3/bin/activate
 conda activate JobRecommender
 
-srun --unbuffered python -u main.py --device 4,5,6,7
+# export CUDA_VISIBLE_DEVICES=4,5,6,7
+
+CUDA_VISIBLE_DEVICES=4,5,6,7 srun --unbuffered torchrun --nproc_per_node=4 main.py --device 4,5,6,7

@@ -97,10 +97,10 @@ def validate(dataloader : torch.utils.data.DataLoader,
     
     predicted_y = torch.cat(predicted_y)
     true_y = torch.cat(true_y)
-    
+
     avg_MAE, spearman_coeff, pearson_coeff = get_metrics(predicted_y, true_y)
 
-    return avg_MAE, spearman_coeff, pearson_coeff 
+    return avg_MAE, spearman_coeff, pearson_coeff
 
 def test(dataloader : torch.utils.data.DataLoader, 
          model : type[nn.Module],

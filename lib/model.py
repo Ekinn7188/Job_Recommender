@@ -67,6 +67,10 @@ class SharedBERT(nn.Module):
 
         self.BERT_encoder = BERTEncoder(args)
 
+        for p in self.BERT_encoder.parameters():
+            p.requires_grad = False
+        self.BERT_encoder.eval()
+
         self.similarity = nn.CosineSimilarity(dim=2)
 
         self.mapping = nn.Linear(self.BERT_encoder.n_chunks,1) # Learn mapping from similarity space to probability

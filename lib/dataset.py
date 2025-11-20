@@ -1,4 +1,5 @@
 import torch
+import torch.distributed as dist
 import polars as pl
 
 from argparse import Namespace
@@ -6,13 +7,14 @@ from tqdm import tqdm
 import requests
 import os
 import numpy as np 
+import pickle
 
 import transformers
 
 from .config import PRETRAINED_BERT_MAX_TOKENS
 
 class Data(torch.utils.data.Dataset):
-    def __init__(self, df : pl.DataFrame, args : Namespace, tokenizer : transformers.AutoTokenizer = None):
+    def __init__(self, df : pl.DataFrame, args : Namespace, name:str, tokenizer : transformers.AutoTokenizer = None):
         """
         Initialize the dataset.
 
@@ -38,13 +40,33 @@ class Data(torch.utils.data.Dataset):
         self.labels = torch.from_numpy(self.labels.copy()) # .copy() because array is "not writable"?
 
         ## tokenize for BERT
+        # check if cached first
+        cache_file = os.path.join(args.dataset_dir, "cache", f"cached_{name}.pkl")
+        if os.path.exists(cache_file):
+            with open(cache_file, "rb") as f:
+                cached = pickle.load(f)
+                self.resumes, self.resumes_attention_mask, self.descriptions, self.descriptions_attention_mask = cached
+            return
+        else:
+            cache_path = os.path.join(args.dataset_dir, "cache")
+            os.makedirs(cache_path, exist_ok=True)
+
         # Use pre-trained WordPiece tokenizer.. it'll break down the tokens better than one trained on our data.
 
         # https://huggingface.co//google-bert/bert-base-uncased
         if not self.tokenizer:
-            print("loading pretrained BERT tokenizer...")
+            if dist.is_initialized():
+                rank = dist.get_rank()
+            else:
+                rank = 0
+
+            if rank == 0:
+                print("loading pretrained BERT tokenizer...")
+
             self.tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-uncased")
-            print("loaded pretrained BERT tokenizer.\n")
+
+            if rank == 0:
+                print("loaded pretrained BERT tokenizer.\n")
 
         # check that max_tokens is a multiple of PRETRAINED_BERT_MAX_TOKENS (512)
         assert self.args.max_tokens % PRETRAINED_BERT_MAX_TOKENS == 0 and self.args.max_tokens > 0, "The configurated max_tokens value must be a multiple of 512, which is greater than 0."
@@ -55,7 +77,12 @@ class Data(torch.utils.data.Dataset):
         # tokenize descriptions...
         self.descriptions, self.descriptions_attention_mask = self.tokenize_and_chunk(self.tokenizer, df, "job_description_text")
         
-    
+        # cache results
+        cache = [self.resumes, self.resumes_attention_mask, self.descriptions, self.descriptions_attention_mask]
+        with open(cache_file, "wb") as f:
+            pickle.dump(cache, f)
+
+
     def _label_func(self, s: str) -> float:
         """
         Map labels to probabilities.
