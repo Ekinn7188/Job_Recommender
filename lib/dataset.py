@@ -6,7 +6,6 @@ from argparse import Namespace
 from tqdm import tqdm
 import requests
 import os
-import numpy as np 
 import pickle
 
 import transformers
@@ -36,8 +35,8 @@ class Data(torch.utils.data.Dataset):
 
         ## Give labels probability
         
-        self.labels = df.select(pl.col("label").map_elements(self._label_func, return_dtype=pl.Float32)).to_numpy()
-        self.labels = torch.from_numpy(self.labels.copy()) # .copy() because array is "not writable"?
+        self.labels = df.select(pl.col("label").map_elements(self._label_func, return_dtype=pl.Int32)).to_numpy()
+        self.labels = torch.from_numpy(self.labels.copy()).long() # .copy() because array is "not writable"?
 
         ## tokenize for BERT
         # check if cached first
@@ -83,9 +82,9 @@ class Data(torch.utils.data.Dataset):
             pickle.dump(cache, f)
 
 
-    def _label_func(self, s: str) -> float:
+    def _label_func(self, s: str) -> int:
         """
-        Map labels to probabilities.
+        Map labels to classes.
 
         Parameters
         ----------
@@ -95,15 +94,15 @@ class Data(torch.utils.data.Dataset):
 
         Returns
         -------
-        The mapped probability.
+        The mapped class.
         """
         match s.upper():
             case "NO FIT":
-                return 0.0
+                return 0
             case "POTENTIAL FIT":
-                return self.args.potential_fit_probabiltiy
+                return 1
             case "GOOD FIT":
-                return 1.0
+                return 2
             case _:
                 raise ValueError(f'Expected "label" column to contain any of: ["No Fit", "Potential Fit", "Good Fit"]. Found: "{s}"')
 

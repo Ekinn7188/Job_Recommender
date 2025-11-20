@@ -73,9 +73,9 @@ class SharedBERT(nn.Module):
 
         self.similarity = nn.CosineSimilarity(dim=1)
 
-        self.mapping = nn.Linear(1,1) # Learn mapping from similarity space to probability
+        self.mapping = nn.Linear(1,3) # Learn mapping from similarity space to class probabiltiies
 
-        self.sigmoid = nn.Sigmoid()
+        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, resume, resume_attn_mask, description, description_attn_mask):
         resume_encodings = self.BERT_encoder(resume, resume_attn_mask).mean(dim=1)
@@ -85,9 +85,9 @@ class SharedBERT(nn.Module):
         similarities = similarities.unsqueeze(1)
         # Learn map from [-1, 1] to [0, 1]
         output = self.mapping(similarities)
-        output = self.sigmoid(output)
+        output = self.softmax(output)
 
-        return output.flatten()
+        return output
 
 class TempModel(nn.Module):
     def __init__(self):

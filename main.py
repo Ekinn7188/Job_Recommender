@@ -100,11 +100,11 @@ def main(args : argparse.Namespace):
     model = model.to(DEVICE)
 
     if is_ddp:
-        model = DDP(model, device_ids=[local_rank], output_device=local_rank)
+        model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
 
     opt = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate)
         
-    criterion = torch.nn.L1Loss() # MAE loss
+    criterion = torch.nn.CrossEntropyLoss()
 
 
     records = []
@@ -119,19 +119,21 @@ def main(args : argparse.Namespace):
         if is_ddp:
             train_sampler.set_epoch(e)
 
-        training_MAE, training_spearman_coeff, training_pearson_coeff  = train_one_epoch(train_dataloader, model, criterion, opt, DEVICE)
+        training_CE, training_accuracy, training_precision, training_recall  = train_one_epoch(train_dataloader, model, criterion, opt, DEVICE)
 
-        val_MAE, val_spearman_coeff, val_pearson_coeff  = validate(val_dataloader, model, DEVICE)
+        val_CE, val_accuracy, val_precision, val_recall  = validate(val_dataloader, model, DEVICE)
  
         if rank == 0:        
             records.append({
                 "epoch": e+1,
-                "train_MAE": training_MAE,
-                "training_spearman": training_spearman_coeff,
-                "training_pearson": training_pearson_coeff,
-                "validation_MAE": val_MAE,
-                "validation_spearman": val_spearman_coeff,
-                "validation_pearson": val_pearson_coeff,
+                "training_CE": training_CE,
+                "training_accuracy": training_accuracy,
+                "training_precision": training_precision,
+                "training_recall": training_recall,
+                "validation_CE": val_CE,
+                "validation_accuracy": val_accuracy,
+                "validation_precision": val_precision,
+                "validation_recall": val_recall,
             })
 
             model_path = os.path.join(args.output_dir, args.version, f"model_epoch_{e+1}.pt")
@@ -143,12 +145,12 @@ def main(args : argparse.Namespace):
 
             print(
                 f"Epoch [{e + 1:02d}/{args.epochs}] "
-                f"Train MAE Loss: {training_MAE:.4f} | Train Spearman Corr. {training_spearman_coeff:.4f} | Train Pearson Corr. {training_pearson_coeff:.4f}"
-                f"| Val Loss: {val_MAE:.4f} | Val Spearman Corr. {val_spearman_coeff:.4f} | Val Pearson Corr. {val_pearson_coeff:.4f}"
+                f"Train CE Loss: {training_CE:.4f} | Train Accuracy {training_accuracy:.4f} | "
+                f"Val CE Loss: {val_CE:.4f} | Val Accuracy {val_accuracy:.4f}"
             )
 
-            if best_val_loss > val_MAE:
-                best_val_loss = val_MAE
+            if best_val_loss > val_CE:
+                best_val_loss = val_CE
                 patience = args.patience
             else:
                 patience -= 1
@@ -163,13 +165,14 @@ def main(args : argparse.Namespace):
         log_path = os.path.join(args.output_dir, args.version, f"output_log.csv")
         log_df.write_csv(log_path)
 
-    test_MAE, test_spearman_coeff, test_pearson_coeff = test(test_dataloader, model, DEVICE)
+    test_CE, test_accuracy, test_precision, test_recall = test(test_dataloader, model, DEVICE)
 
     if rank == 0:    
         test_results = pl.DataFrame({
-            "test_MAE": test_MAE,
-            "test_spearman": test_spearman_coeff,
-            "test_pearson": test_pearson_coeff,
+            "test_CE": test_CE,
+            "test_accuracy": test_accuracy,
+            "test_precision": test_precision,
+            "test_recall": test_recall,
         })
 
         log_path = os.path.join(args.output_dir, args.version, f"test_results.csv")

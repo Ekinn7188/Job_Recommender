@@ -26,7 +26,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch_size", default=2, type=float)
     parser.add_argument('--patience', type = int, default = 5, help = "# of epochs before early stopping")
 
-    parser.add_argument("--potential_fit_probabiltiy", default=0.8, type=float)
     parser.add_argument("--max_tokens", default=7_680, type=int, help="For padding purposes. Must be a positive integer multiple of 512.") # 512 because of pretrained BERT's limitation
 
 
