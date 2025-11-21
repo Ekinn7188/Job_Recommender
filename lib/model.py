@@ -64,21 +64,42 @@ class SharedBERT(nn.Module):
         #     p.requires_grad = False
         # self.BERT_encoder.eval()
 
-        self.similarity = nn.CosineSimilarity(dim=1)
-
-        self.mapping = nn.Linear(1,3) # Learn mapping from similarity space to class probabiltiies
+        self.hidden_size = 768
+        
+        self.linear = nn.Sequential(
+            nn.Linear(self.hidden_size*4,self.hidden_size),
+            nn.ReLU(),
+            nn.Linear(self.hidden_size,self.hidden_size//2),
+            nn.ReLU(),
+            nn.Linear(self.hidden_size//2, 3),
+        )
 
     def forward(self, resume, resume_attn_mask, description, description_attn_mask):
-        resume_encodings = self.BERT_encoder(resume, resume_attn_mask).mean(dim=1)
-        description_encodings = self.BERT_encoder(description, description_attn_mask).mean(dim=1)
+        B, C, L = resume_attn_mask.shape
 
-        similarities = self.similarity(resume_encodings, description_encodings)
-        similarities = similarities.unsqueeze(1)
-        # Learn map from [-1, 1] to [0, 1]
-        output = self.mapping(similarities)
+        resume_encodings = self.BERT_encoder(resume, resume_attn_mask)[:, 0, :] # get CLS
+        description_encodings = self.BERT_encoder(description, description_attn_mask)[:, 0, :]  # get CLS
+
+        resume_encodings = self.masked_mean(resume_encodings, resume_attn_mask.reshape(B, C*L))
+        description_encodings = self.masked_mean(description_encodings, description_attn_mask.reshape(B, C*L))
+
+        output = torch.cat([resume_encodings, 
+                            description_encodings, 
+                            torch.abs(resume_encodings - description_encodings), 
+                            resume_encodings * description_encodings], dim=1)
+
+        output = self.linear(output)
 
         return output
 
+    def masked_mean(self, x, mask):
+        mask = mask.unsqueeze(-1)
+        x = x * mask
+
+        lengths = mask.sum(dim=1).clamp(min=1)
+
+        return x.sum(dim=1)/lengths
+    
 class SplitBERT(nn.Module):
     def __init__(self, args):
         super(SplitBERT, self).__init__()
@@ -107,7 +128,7 @@ class SplitBERT(nn.Module):
         self.conv = nn.Conv1d(self.hidden_size, self.hidden_size, kernel_size=3, padding=1)
 
         self.linear = nn.Sequential(
-            nn.Linear(self.hidden_size*2,self.hidden_size),
+            nn.Linear(self.hidden_size*4,self.hidden_size),
             nn.ReLU(),
             nn.Linear(self.hidden_size,self.hidden_size//2),
             nn.ReLU(),
@@ -143,17 +164,17 @@ class SplitBERT(nn.Module):
             need_weights=False
         )
 
-        resume_encodings = resume_encodings + r_context
-        description_encodings = description_encodings + d_context
+        resume_encodings = (resume_encodings + r_context)[:, 0, :] # get CLS
+        description_encodings = (description_encodings + d_context)[:, 0, :] # get CLS
 
         # Head
-        resume_encodings = self.conv(resume_encodings.transpose(1,2)).transpose(1,2) # swap sequence and hidden, then put back
-        description_encodings = self.conv(description_encodings.transpose(1,2)).transpose(1,2) # swap sequence and hidden, then put back
+        resume_encodings = self.masked_mean(resume_encodings, resume_attn_mask.reshape(B, C*L))
+        description_encodings = self.masked_mean(description_encodings, description_attn_mask.reshape(B, C*L))
 
-        resume_encodings = self.masked_mean(resume_encodings, resume_attn_mask)
-        description_encodings = self.masked_mean(description_encodings, description_attn_mask)
-
-        output = torch.concat([resume_encodings, description_encodings], dim=1)
+        output = torch.cat([resume_encodings, 
+                            description_encodings, 
+                            torch.abs(resume_encodings - description_encodings), 
+                            resume_encodings * description_encodings], dim=1)
 
         output = self.linear(output)
 
