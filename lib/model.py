@@ -118,11 +118,13 @@ class SplitBERT(nn.Module):
 
         self.linear = nn.Sequential(
             nn.Linear(self.hidden_size*2,self.hidden_size),
+            nn.ReLU(),
             nn.Linear(self.hidden_size,self.hidden_size//2),
+            nn.ReLU(),
             nn.Linear(self.hidden_size//2, 3),
         )
         
-        self.softmax = nn.Softmax(dim=1)
+        # self.softmax = nn.Softmax(dim=1)
 
     def forward(self, resume, resume_attn_mask, description, description_attn_mask):
         B, C, L = resume_attn_mask.shape
@@ -166,7 +168,7 @@ class SplitBERT(nn.Module):
         output = torch.concat([resume_encodings, description_encodings], dim=1)
 
         output = self.linear(output)
-        output = self.softmax(output)
+        # output = self.softmax(output)
 
         return output
 
