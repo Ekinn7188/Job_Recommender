@@ -11,6 +11,6 @@ conda activate JobRecommender
 
 # export CUDA_VISIBLE_DEVICES=4,5,6,7
 
-CUDA_VISIBLE_DEVICES=4,5,6,7 srun --unbuffered torchrun --master_port 29502 --nproc_per_node=4 main.py --device 4,5,6,7 --model_type SharedBERT --version split_multigpu_fixed --batch_size 4
+CUDA_VISIBLE_DEVICES=4,5,6,7 srun --unbuffered torchrun --master_port 29502 --nproc_per_node=4 main.py --device 4,5,6,7 --model_type SharedBERT --version shared_latest --batch_size 4
 
 # srun --unbuffered python main.py --device 0 --model_type SplitBERT --version split --batch_size 2
