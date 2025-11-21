@@ -103,25 +103,26 @@ def main(args : argparse.Namespace):
 
     # Smaller LR on BERT, bigger on head.
 
-    bert_params = []
-    non_bert_params = []
+    if "BERT" in args.model_type.upper(): 
+        bert_params = []
+        non_bert_params = []
 
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
 
-        # Any parameter belonging to either BERT encoder
-        if "BERT_encoder" in name:
-            bert_params.append(param)
-        else:
-            non_bert_params.append(param)
-    
-    opt = torch.optim.AdamW([
-        {"params": bert_params, "lr": 5e-5},
-        {"params": non_bert_params, "lr": args.learning_rate},
-    ])
-
-    # opt = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate)
+            # Any parameter belonging to either BERT encoder
+            if "BERT_encoder" in name:
+                bert_params.append(param)
+            else:
+                non_bert_params.append(param)
+        
+        opt = torch.optim.Adam([
+            {"params": bert_params, "lr": 5e-5},
+            {"params": non_bert_params, "lr": args.learning_rate},
+        ])
+    else:
+        opt = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate)
         
     criterion = torch.nn.CrossEntropyLoss()
 
