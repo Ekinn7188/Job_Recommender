@@ -10,6 +10,9 @@ def get_metrics(predicted : torch.Tensor, expected : torch.Tensor):
 
     CE = torch.nn.CrossEntropyLoss()(predicted, expected.flatten())
     
+    # logits to probabilities
+    predicted = predicted.softmax(dim=1)
+    
     # multi-class confusion matrix
     matrix = multilabel_confusion_matrix(y_true=expected.flatten(), y_pred=predicted.argmax(dim=1).flatten())
     tn, fn, tp, fp = matrix[:,0,0].sum(), matrix[:,1,0].sum(), matrix[:,1,1].sum(), matrix[:,0,1].sum()

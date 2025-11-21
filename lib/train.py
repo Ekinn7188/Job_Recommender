@@ -45,9 +45,6 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
         opt.step()
         l.cpu().detach()
 
-        # logits to probabilities
-        predicted = predicted.softmax(dim=1)
-
         predicted_y.append(predicted.cpu().detach())
         true_y.append(labels.cpu().detach())
     
@@ -94,9 +91,6 @@ def validate(dataloader : torch.utils.data.DataLoader,
                 descriptions_attention_masks.to(device),
             )
 
-            # logits to probabilities
-            predicted = predicted.softmax(dim=1)
-            
             predicted_y.append(predicted.cpu().detach())
             true_y.append(labels.cpu().detach())
     
@@ -140,9 +134,6 @@ def test(dataloader : torch.utils.data.DataLoader,
                 descriptions.to(device),
                 descriptions_attention_masks.to(device),
             )
-
-            # logits to probabilities
-            predicted = predicted.softmax(dim=1)
             
             predicted_y.append(predicted.cpu().detach())
             true_y.append(labels.cpu().detach())
