@@ -27,12 +27,6 @@ class BERTEncoder(nn.Module):
         # It inherits from torch.nn.Module, so just treat it as anything else.
         self.BERT_encoder = BertModel.from_pretrained("bert-base-uncased")
 
-        # BERT_encoder output on all chunks is shape (B, C, 178)
-
-        ## Bring shape (B, 178, C) to (B, 178, 1)
-        # Adaptive pool figures out kernel, stride, padding, etc...
-        self.chunk_pooling = nn.AdaptiveAvgPool1d(output_size=1)
-
     def forward(self, x : torch.Tensor, x_attn_mask : torch.Tensor):
         """
         Encodes tokens into a latent space.
@@ -47,15 +41,14 @@ class BERTEncoder(nn.Module):
         Returns
         -------
         result : torch.Tensor
-            Encoded tensor of shape `(B, 178)`.
+            Encoded, unraveled, chunk tensor of shape `(B, C*512, 178)`.
         """
-        # encoded_chunks = []
         B, C, L = x.shape
 
         x = x.reshape(B*C, L)
         x_attn_mask = x_attn_mask.reshape(B*C, L)
 
-        encoded_chunks = self.BERT_encoder(input_ids=x, attention_mask=x_attn_mask).last_hidden_state #[:,0,:] #.pooler_output
+        encoded_chunks = self.BERT_encoder(input_ids=x, attention_mask=x_attn_mask).last_hidden_state
 
         encoded_chunks = encoded_chunks.reshape(B, C*L, -1)
 
@@ -75,8 +68,6 @@ class SharedBERT(nn.Module):
 
         self.mapping = nn.Linear(1,3) # Learn mapping from similarity space to class probabiltiies
 
-        self.softmax = nn.Softmax(dim=1)
-
     def forward(self, resume, resume_attn_mask, description, description_attn_mask):
         resume_encodings = self.BERT_encoder(resume, resume_attn_mask).mean(dim=1)
         description_encodings = self.BERT_encoder(description, description_attn_mask).mean(dim=1)
@@ -85,7 +76,6 @@ class SharedBERT(nn.Module):
         similarities = similarities.unsqueeze(1)
         # Learn map from [-1, 1] to [0, 1]
         output = self.mapping(similarities)
-        output = self.softmax(output)
 
         return output
 
@@ -123,8 +113,6 @@ class SplitBERT(nn.Module):
             nn.ReLU(),
             nn.Linear(self.hidden_size//2, 3),
         )
-        
-        # self.softmax = nn.Softmax(dim=1)
 
     def forward(self, resume, resume_attn_mask, description, description_attn_mask):
         B, C, L = resume_attn_mask.shape
@@ -168,7 +156,6 @@ class SplitBERT(nn.Module):
         output = torch.concat([resume_encodings, description_encodings], dim=1)
 
         output = self.linear(output)
-        # output = self.softmax(output)
 
         return output
 

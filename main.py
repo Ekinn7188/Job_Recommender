@@ -56,10 +56,6 @@ def main(args : argparse.Namespace):
     val_df, test_df = test_df.head(split), test_df.tail(-split)
 
     # Prepare data
-    train_df = train_df.sample(fraction=1, shuffle=True, seed=args.seed)
-    train_df = train_df.head(10)
-    test_df = test_df.head(10)
-    val_df = val_df.head(10)
     if rank == 0:
         print("Preparing datasets...\n")
     train_dataset = Data(train_df, args, "train")
@@ -105,10 +101,29 @@ def main(args : argparse.Namespace):
     if is_ddp:
         model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
 
-    opt = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate)
+    # Smaller LR on BERT, bigger on head.
+
+    bert_params = []
+    non_bert_params = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+
+        # Any parameter belonging to either BERT encoder
+        if "BERT_encoder" in name:
+            bert_params.append(param)
+        else:
+            non_bert_params.append(param)
+    
+    opt = torch.optim.AdamW([
+        {"params": bert_params, "lr": 5e-5},
+        {"params": non_bert_params, "lr": args.learning_rate},
+    ])
+
+    # opt = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate)
         
     criterion = torch.nn.CrossEntropyLoss()
-
 
     records = []
     patience = args.patience
