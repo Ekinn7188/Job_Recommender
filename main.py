@@ -56,6 +56,7 @@ def main(args : argparse.Namespace):
     val_df, test_df = test_df.head(split), test_df.tail(-split)
 
     # Prepare data
+    train_df = train_df.sample(fraction=1, shuffle=True, seed=args.seed)
     train_df = train_df.head(10)
     test_df = test_df.head(10)
     val_df = val_df.head(10)
