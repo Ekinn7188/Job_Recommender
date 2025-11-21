@@ -217,5 +217,4 @@ def ddp_setup():
 if __name__ == "__main__":
     args = parse_args()
     download_dataset(args)
-    exit(0)
     main(args)

@@ -5,6 +5,8 @@
 #SBATCH --nodelist=gpu002
 #SBATCH --gres=gpu:4
 #SBATCH --time=1-12:00:00
+#SBATCH --output=job_output.out
+#SBATCH --error=job_output.out
 
 source $HOME/miniconda3/bin/activate
 conda activate JobRecommender
