@@ -55,9 +55,9 @@ class BERTEncoder(nn.Module):
         x = x.reshape(B*C, L)
         x_attn_mask = x_attn_mask.reshape(B*C, L)
 
-        encoded_chunks = self.BERT_encoder(input_ids=x, attention_mask=x_attn_mask).last_hidden_state[:,0,:] #.pooler_output
+        encoded_chunks = self.BERT_encoder(input_ids=x, attention_mask=x_attn_mask).last_hidden_state #[:,0,:] #.pooler_output
 
-        encoded_chunks = encoded_chunks.reshape(B, C, -1)
+        encoded_chunks = encoded_chunks.reshape(B, C*L, -1)
 
         return encoded_chunks
 
@@ -88,6 +88,96 @@ class SharedBERT(nn.Module):
         output = self.softmax(output)
 
         return output
+
+class SplitBERT(nn.Module):
+    def __init__(self, args):
+        super(SplitBERT, self).__init__()
+
+        self.resume_encoder = BERTEncoder(args)
+        self.description_encoder = BERTEncoder(args)
+
+        self.hidden_size = 768
+        self.n_heads = 4
+        self.dropout = 0.1
+
+        self.cross_attention_r2d = nn.MultiheadAttention(
+            embed_dim=self.hidden_size,
+            num_heads=self.n_heads,
+            batch_first=True,
+            dropout=self.dropout
+        )
+        
+        self.cross_attention_d2r = nn.MultiheadAttention(
+            embed_dim=self.hidden_size,
+            num_heads=self.n_heads,
+            batch_first=True,
+            dropout=self.dropout
+        )
+
+        self.conv = nn.Conv1d(self.hidden_size, self.hidden_size, kernel_size=3, padding=1)
+
+        self.linear = nn.Sequential(
+            nn.Linear(self.hidden_size*2,self.hidden_size),
+            nn.Linear(self.hidden_size,self.hidden_size//2),
+            nn.Linear(self.hidden_size//2, 3),
+        )
+        
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, resume, resume_attn_mask, description, description_attn_mask):
+        B, C, L = resume_attn_mask.shape
+
+        resume_encodings = self.resume_encoder(resume, resume_attn_mask)
+        resume_attn_mask = resume_attn_mask.reshape(B, C*L)
+
+        description_encodings = self.description_encoder(description, description_attn_mask)
+        description_attn_mask = description_attn_mask.reshape(B, C*L)
+
+        ## cross attention
+
+        # query the description with the resume
+        r_context, _ = self.cross_attention_r2d(
+            query=resume_encodings,
+            key=description_encodings,
+            value=description_encodings,
+            key_padding_mask=(resume_attn_mask == 0), # padding is True for pad, False for no pad,
+            need_weights=False
+        )
+
+        # query the resume with the description 
+        d_context, _ = self.cross_attention_d2r(
+            query=description_encodings,
+            key=resume_encodings,
+            value=resume_encodings,
+            key_padding_mask=(description_attn_mask == 0), # padding is True for pad, False for no pad,
+            need_weights=False
+        )
+
+        resume_encodings = resume_encodings + r_context
+        description_encodings = description_encodings + d_context
+
+        # Head
+        resume_encodings = self.conv(resume_encodings.transpose(1,2)).transpose(1,2) # swap sequence and hidden, then put back
+        description_encodings = self.conv(description_encodings.transpose(1,2)).transpose(1,2) # swap sequence and hidden, then put back
+
+        resume_encodings = self.masked_mean(resume_encodings, resume_attn_mask)
+        description_encodings = self.masked_mean(description_encodings, description_attn_mask)
+
+        output = torch.concat([resume_encodings, description_encodings], dim=1)
+
+        output = self.linear(output)
+        output = self.softmax(output)
+
+        return output
+
+    def masked_mean(self, x, mask):
+        mask = mask.unsqueeze(-1)
+        x = x * mask
+
+        lengths = mask.sum(dim=1).clamp(min=1)
+
+        return x.sum(dim=1)/lengths
+
 
 class TempModel(nn.Module):
     def __init__(self):

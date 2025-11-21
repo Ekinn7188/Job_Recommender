@@ -4,8 +4,9 @@ from sklearn.metrics import multilabel_confusion_matrix
 
 def get_metrics(predicted : torch.Tensor, expected : torch.Tensor):
     if dist.is_initialized():
-        rank = dist.get_rank()
         world_size = dist.get_world_size()
+    else:
+        world_size = 1
 
     CE = torch.nn.CrossEntropyLoss()(predicted, expected.flatten())
 

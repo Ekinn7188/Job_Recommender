@@ -8,7 +8,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import polars as pl
 import numpy as np
 
-from lib import parse_args, Data, TempModel, SharedBERT, train_one_epoch, test, validate, download_dataset
+from lib import parse_args, Data, TempModel, SharedBERT, SplitBERT, train_one_epoch, test, validate, download_dataset
 
 def main(args : argparse.Namespace):
     # make output dirs
@@ -56,7 +56,6 @@ def main(args : argparse.Namespace):
     val_df, test_df = test_df.head(split), test_df.tail(-split)
 
     # Prepare data
-
     if rank == 0:
         print("Preparing datasets...\n")
     train_dataset = Data(train_df, args, "train")
@@ -74,9 +73,9 @@ def main(args : argparse.Namespace):
         test_sampler = DistributedSampler(test_dataset, num_replicas=world_size, rank=rank, shuffle=False)
         val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False)
         
-        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, num_workers=1, pin_memory=True)
-        test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, sampler=test_sampler, num_workers=1, pin_memory=True)
-        val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, sampler=val_sampler, num_workers=1, pin_memory=True)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size//world_size, sampler=train_sampler, num_workers=1, pin_memory=True)
+        test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size//world_size, sampler=test_sampler, num_workers=1, pin_memory=True)
+        val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size//world_size, sampler=val_sampler, num_workers=1, pin_memory=True)
     else:
         train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=1, pin_memory=True, shuffle=True)
         test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=1, pin_memory=True, shuffle=False)
@@ -89,7 +88,7 @@ def main(args : argparse.Namespace):
         case "SHAREDBERT":
             model = SharedBERT(args)
         case "SPLITBERT":
-            model = TempModel()
+            model = SplitBERT(args)
         case "ML":
             model = TempModel()
         case "WORD2VEC":
