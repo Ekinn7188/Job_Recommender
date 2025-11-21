@@ -152,11 +152,28 @@ def main(args : argparse.Namespace):
             if best_val_loss > val_CE:
                 best_val_loss = val_CE
                 patience = args.patience
+                early_stop_flag = False
             else:
                 patience -= 1
                 if patience < 0:
-                    print("Stopping fold early...")
-                    break
+                    early_stop_flag = True
+                else:
+                    early_stop_flag = False
+        else:
+            early_stop_flag = False
+        
+
+        if is_ddp:
+            # Give all ranks the early_stop_flag from rank 0
+            flag_tensor = torch.tensor([early_stop_flag], device=DEVICE)
+            torch.distributed.broadcast(flag_tensor, src=0)
+            early_stop_flag = int(flag_tensor.item())
+
+        if early_stop_flag:
+            if rank == 0:
+                print("Stopping fold early...")
+            break
+
 
     # Save per-fold logs
 
