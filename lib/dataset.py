@@ -1,5 +1,6 @@
 import torch
 import torch.distributed as dist
+import torch.nn.functional as F
 import polars as pl
 
 from argparse import Namespace
@@ -62,7 +63,7 @@ class Data(torch.utils.data.Dataset):
             if rank == 0:
                 print("loading pretrained BERT tokenizer...")
 
-            self.tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-uncased")
+            self.tokenizer = transformers.BertTokenizerFast.from_pretrained("bert-base-uncased")
 
             if rank == 0:
                 print("loaded pretrained BERT tokenizer.\n")
@@ -106,14 +107,14 @@ class Data(torch.utils.data.Dataset):
             case _:
                 raise ValueError(f'Expected "label" column to contain any of: ["No Fit", "Potential Fit", "Good Fit"]. Found: "{s}"')
 
-    def tokenize_and_chunk(self, tokenizer: transformers.BertTokenizer, df: pl.DataFrame, col: str) -> tuple[torch.Tensor, torch.Tensor]:
+    def tokenize_and_chunk(self, tokenizer: transformers.BertTokenizerFast, df: pl.DataFrame, col: str) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Tokenize the strings and split them into chunks of PRETRAINED_BERT_MAX_TOKENS (512). The pre-trained BERT model can only handle 512 tokens at a time.
 
         Parameters
         ----------
 
-        tokenizer : transformers.BertTokenizer
+        tokenizer : transformers.BertTokenizerFast
             The pre-trained BERT tokenizer.
         
         df : pl.DataFrame
@@ -129,23 +130,58 @@ class Data(torch.utils.data.Dataset):
 
         """
 
+        if dist.is_initialized():
+            os.environ["TOKENIZERS_PARALLELISM"] = "false" # avoid deadlocks with the tokenizer
+
+        docs = df.select(pl.col(col)).to_numpy().flatten().tolist()
+
         encoding : transformers.BatchEncoding = tokenizer(
-            df.select(pl.col(col)).to_numpy().flatten().tolist(), 
+            docs, 
             return_tensors='pt', 
             padding='max_length', 
-            max_length=self.args.max_tokens
+            truncation=True,
+            max_length=PRETRAINED_BERT_MAX_TOKENS,
+            return_overflowing_tokens=True,
+            stride=0,
         )
-
-        ids : torch.Tensor = encoding.input_ids
+        
+        id : torch.Tensor = encoding.input_ids
         attention_mask : torch.Tensor = encoding.attention_mask
+        overflow_mapping : torch.Tensor = encoding.overflow_to_sample_mapping
 
-        ## Reshape them into chunks of size PRETRAINED_BERT_MAX_TOKENS (512)
-        # No need to check for perfect division, already done in __init__()
-        n = ids.shape[0]
-        ids = ids.reshape(n, self.args.max_tokens//PRETRAINED_BERT_MAX_TOKENS, PRETRAINED_BERT_MAX_TOKENS)
-        attention_mask = attention_mask.reshape(n, self.args.max_tokens//PRETRAINED_BERT_MAX_TOKENS, PRETRAINED_BERT_MAX_TOKENS)
+        # map overflow to correct documents
 
-        return ids, attention_mask
+        num_docs = len(docs)
+        ids = [[] for _ in range(num_docs)]
+        masks = [[] for _ in range(num_docs)]
+
+        for chunk_idx, doc_idx in enumerate(overflow_mapping):
+            i = int(doc_idx.item())
+            ids[i].append(id[chunk_idx])
+            masks[i].append(attention_mask[chunk_idx])
+
+        # join to one tensor
+
+        ids = [torch.stack(chunks) for chunks in ids]     
+        masks = [torch.stack(chunks) for chunks in masks]
+
+        max_chunks = self.args.max_tokens // PRETRAINED_BERT_MAX_TOKENS
+
+        ids = [
+            F.pad(chunks, pad=(0,0,0, max_chunks-len(chunks))) if len(chunks) < max_chunks
+            else chunks[:max_chunks]
+            for chunks in ids 
+        ]
+        masks = [
+            F.pad(chunks, pad=(0,0,0, max_chunks-len(chunks))) if len(chunks) < max_chunks
+            else chunks[:max_chunks]
+            for chunks in masks 
+        ]
+
+        ids = torch.stack(ids)
+        masks = torch.stack(masks)
+
+        return ids, masks
 
 
     def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
