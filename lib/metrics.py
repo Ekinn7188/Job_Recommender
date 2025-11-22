@@ -1,6 +1,6 @@
 import torch
 import torch.distributed as dist
-from sklearn.metrics import multilabel_confusion_matrix
+from sklearn.metrics import accuracy_score, precision_score, recall_score
 
 def get_metrics(predicted : torch.Tensor, expected : torch.Tensor):
     if dist.is_initialized():
@@ -12,14 +12,14 @@ def get_metrics(predicted : torch.Tensor, expected : torch.Tensor):
     
     # logits to probabilities
     predicted = predicted.softmax(dim=1)
+
+    expected = expected.flatten()
+    predicted = predicted.argmax(dim=1).flatten()
     
     # multi-class confusion matrix
-    matrix = multilabel_confusion_matrix(y_true=expected.flatten(), y_pred=predicted.argmax(dim=1).flatten())
-    tn, fn, tp, fp = matrix[:,0,0].sum(), matrix[:,1,0].sum(), matrix[:,1,1].sum(), matrix[:,0,1].sum()
-
-    accuracy = (tn + tp) / (tn + fn + tp + fp)
-    precision = tp / (tp + fp)
-    recall = tp / (tp + fn)
+    accuracy = accuracy_score(expected, predicted)
+    precision = precision_score(expected, predicted, average="macro", zero_division=0)
+    recall = recall_score(expected, predicted, average="macro", zero_division=0)
 
     # for DDP
     CE = ddp_reduce_tensor(CE, world_size)
