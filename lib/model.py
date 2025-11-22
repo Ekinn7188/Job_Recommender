@@ -50,7 +50,7 @@ class BERTEncoder(nn.Module):
 
         encoded_chunks = self.BERT_encoder(input_ids=x, attention_mask=x_attn_mask).last_hidden_state
 
-        encoded_chunks = encoded_chunks.reshape(B, C*L, -1)
+        encoded_chunks = encoded_chunks.reshape(B, C, L, -1)
 
         return encoded_chunks
 
@@ -77,16 +77,21 @@ class SharedBERT(nn.Module):
     def forward(self, resume, resume_attn_mask, description, description_attn_mask):
         B, C, L = resume_attn_mask.shape
 
-        resume_encodings = self.BERT_encoder(resume, resume_attn_mask)[:, 0, :] # get CLS
-        description_encodings = self.BERT_encoder(description, description_attn_mask)[:, 0, :]  # get CLS
+        resume_encodings = self.BERT_encoder(resume, resume_attn_mask)[:, :, 0, :] # get CLS
+        description_encodings = self.BERT_encoder(description, description_attn_mask)[:, :, 0, :]  # get CLS
 
-        resume_encodings = self.masked_mean(resume_encodings, resume_attn_mask.reshape(B, C*L))
-        description_encodings = self.masked_mean(description_encodings, description_attn_mask.reshape(B, C*L))
+        chunk_mask_r = resume_attn_mask.any(dim=2).float()
+        chunk_mask_d = description_attn_mask.any(dim=2).float()
+
+        resume_encodings = self.masked_mean(resume_encodings, chunk_mask_r)
+        description_encodings = self.masked_mean(description_encodings, chunk_mask_d)
 
         output = torch.cat([resume_encodings, 
                             description_encodings, 
                             torch.abs(resume_encodings - description_encodings), 
                             resume_encodings * description_encodings], dim=1)
+        
+        # print(output.shape)
 
         output = self.linear(output)
 
@@ -139,9 +144,11 @@ class SplitBERT(nn.Module):
         B, C, L = resume_attn_mask.shape
 
         resume_encodings = self.resume_encoder(resume, resume_attn_mask)
+        resume_encodings = resume_encodings.reshape(B, C*L, -1)
         resume_attn_mask = resume_attn_mask.reshape(B, C*L)
 
         description_encodings = self.description_encoder(description, description_attn_mask)
+        description_encodings = description_encodings.reshape(B, C*L, -1)
         description_attn_mask = description_attn_mask.reshape(B, C*L)
 
         ## cross attention
@@ -164,12 +171,22 @@ class SplitBERT(nn.Module):
             need_weights=False
         )
 
-        resume_encodings = (resume_encodings + r_context)[:, 0, :] # get CLS
-        description_encodings = (description_encodings + d_context)[:, 0, :] # get CLS
+        resume_encodings = (resume_encodings + r_context)
+        description_encodings = (description_encodings + d_context)
+
+        resume_encodings = resume_encodings.reshape(B, C, L, -1)[:, :, 0, :] # get CLS
+        resume_attn_mask = resume_attn_mask.reshape(B, C, L)
+
+        description_encodings = description_encodings.reshape(B, C, L, -1)[:, :, 0, :] # get CLS
+        description_attn_mask = description_attn_mask.reshape(B, C, L)
 
         # Head
-        resume_encodings = self.masked_mean(resume_encodings, resume_attn_mask.reshape(B, C*L))
-        description_encodings = self.masked_mean(description_encodings, description_attn_mask.reshape(B, C*L))
+
+        chunk_mask_r = resume_attn_mask.any(dim=2).float()
+        chunk_mask_d = description_attn_mask.any(dim=2).float()
+
+        resume_encodings = self.masked_mean(resume_encodings, chunk_mask_r)
+        description_encodings = self.masked_mean(description_encodings, chunk_mask_d)
 
         output = torch.cat([resume_encodings, 
                             description_encodings, 

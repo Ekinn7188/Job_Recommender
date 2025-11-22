@@ -36,7 +36,7 @@ class Data(torch.utils.data.Dataset):
 
         ## Give labels probability
         
-        self.labels = df.select(pl.col("label").map_elements(self._label_func, return_dtype=pl.Int32)).to_numpy()
+        self.labels = self.df.select(pl.col("label").map_elements(self._label_func, return_dtype=pl.Int32)).to_numpy()
         self.labels = torch.from_numpy(self.labels.copy()).long() # .copy() because array is "not writable"?
 
         ## tokenize for BERT
@@ -72,10 +72,10 @@ class Data(torch.utils.data.Dataset):
         assert self.args.max_tokens % PRETRAINED_BERT_MAX_TOKENS == 0 and self.args.max_tokens > 0, "The configurated max_tokens value must be a multiple of 512, which is greater than 0."
 
         # tokenize resumes...
-        self.resumes, self.resumes_attention_mask = self.tokenize_and_chunk(self.tokenizer, df, "resume_text")
+        self.resumes, self.resumes_attention_mask = self.tokenize_and_chunk(self.tokenizer, self.df, "resume_text")
 
         # tokenize descriptions...
-        self.descriptions, self.descriptions_attention_mask = self.tokenize_and_chunk(self.tokenizer, df, "job_description_text")
+        self.descriptions, self.descriptions_attention_mask = self.tokenize_and_chunk(self.tokenizer, self.df, "job_description_text")
         
         # cache results
         cache = [self.resumes, self.resumes_attention_mask, self.descriptions, self.descriptions_attention_mask]
