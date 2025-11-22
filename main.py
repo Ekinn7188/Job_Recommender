@@ -8,7 +8,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import polars as pl
 import numpy as np
 
-from lib import parse_args, Data, TempModel, SharedBERT, SplitBERT, train_one_epoch, test, validate, download_dataset
+from lib import parse_args, Data, TempModel, SharedBERT, SplitBERT, train_one_epoch, test, validate, download_dataset, TFIDFLogReg
 
 def main(args : argparse.Namespace):
     # make output dirs
@@ -54,6 +54,27 @@ def main(args : argparse.Namespace):
 
     split = int(test_df.shape[0] * 0.10)
     val_df, test_df = test_df.head(split), test_df.tail(-split)
+    
+    # ML baseline doesn't use pytorch so special case
+    if args.model_type.upper() == "ML":
+        # train/test with TF-IDF + LogReg
+        ml_model = TFIDFLogReg(args)
+        val_metrics = ml_model.train()
+        test_metrics = ml_model.test()
+
+        # save metrics to output/<version>/
+        out_dir = os.path.join(args.output_dir, args.version)
+        os.makedirs(out_dir, exist_ok=True)
+
+        val_df_out = pl.DataFrame(val_metrics)
+        val_df_out.write_csv(os.path.join(out_dir, "ml_val_metrics.csv"))
+
+        test_df_out = pl.DataFrame(test_metrics)
+        test_df_out.write_csv(os.path.join(out_dir, "ml_test_metrics.csv"))
+
+        print("Validation metrics:", val_metrics)
+        print("Test metrics:", test_metrics)
+        return
 
     # Prepare data
     if rank == 0:
@@ -90,7 +111,7 @@ def main(args : argparse.Namespace):
         case "SPLITBERT":
             model = SplitBERT(args)
         case "ML":
-            model = TempModel()
+            raise ValueError("ML model_type uses separate TF-IDF code path in main().")
         case "WORD2VEC":
             model = TempModel()
         case _:

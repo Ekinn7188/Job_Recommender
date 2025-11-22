@@ -7,6 +7,13 @@ from argparse import Namespace
 
 from .config import PRETRAINED_BERT_MAX_TOKENS
 
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, precision_score, recall_score, log_loss
+import os
+import polars as pl
+import numpy as np
+
 class BERTEncoder(nn.Module):
     def __init__(self, args : Namespace):
         """
@@ -187,6 +194,84 @@ class SplitBERT(nn.Module):
         lengths = mask.sum(dim=1).clamp(min=1)
 
         return x.sum(dim=1)/lengths
+    
+class TFIDFLogReg:
+    def __init__(self, args):
+        self.args = args
+        self.vectorizer = TfidfVectorizer(
+            max_features=20000,
+            ngram_range=(1, 2),
+            stop_words="english"
+        )
+        self.model = LogisticRegression(
+            max_iter=1000,
+            multi_class="multinomial",
+            n_jobs=-1
+        )
+        # 3 fits: none, potential, good
+        self.label_map = {
+            "No Fit": 0,
+            "Potential Fit": 1,
+            "Good Fit": 2
+        }
+        
+    def load_split(self, name):
+        df = pl.read_csv(os.path.join(self.args.dataset_dir, f"{name}.csv"))
+        texts = (
+            df["resume_text"].cast(str)
+            + " [SEP] "
+            + df["job_description_text"].cast(str)
+        ).to_list()
+        
+        labels = df["label"].map_elements(lambda x: self.label_map[x]).to_numpy()
+        
+        return texts, labels
+    
+    def train(self):
+        X_train, y_train = self.load_split("train")
+        
+        # shuffle before splitting
+        indices = np.random.permutation(len(X_train))
+        X_train = [X_train[i] for i in indices]
+        y_train = y_train[indices]
+        
+        n_train = int(0.9 * len(X_train))
+
+        X_t = X_train[:n_train]
+        X_val = X_train[n_train:]
+        y_t = y_train[:n_train]
+        y_val = y_train[n_train:]
+
+        X_t = self.vectorizer.fit_transform(X_t)
+        X_val = self.vectorizer.transform(X_val)
+
+        self.model.fit(X_t, y_t)
+
+        # evaluate
+        y_prob = self.model.predict_proba(X_val)
+        y_pred = y_prob.argmax(axis=1)
+
+        return {
+            "val_acc": float(accuracy_score(y_val, y_pred)),
+            "val_prec": float(precision_score(y_val, y_pred, average="macro")),
+            "val_rec": float(recall_score(y_val, y_pred, average="macro")),
+            "val_ce": float(log_loss(y_val, y_prob, labels=[0,1,2]))
+        }
+
+    def test(self):
+        X_test, y_test = self.load_split("test")
+        X_test = self.vectorizer.transform(X_test)
+
+        from sklearn.metrics import accuracy_score, precision_score, recall_score, log_loss
+        y_prob = self.model.predict_proba(X_test)
+        y_pred = y_prob.argmax(axis=1)
+
+        return {
+            "test_acc": float(accuracy_score(y_test, y_pred)),
+            "test_prec": float(precision_score(y_test, y_pred, average="macro")),
+            "test_rec": float(recall_score(y_test, y_pred, average="macro")),
+            "test_ce": float(log_loss(y_test, y_prob, labels=[0,1,2]))
+        }
 
 
 class TempModel(nn.Module):
