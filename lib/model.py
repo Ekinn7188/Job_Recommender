@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from transformers import BertModel
 
@@ -7,12 +8,14 @@ from argparse import Namespace
 
 from .config import PRETRAINED_BERT_MAX_TOKENS
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, precision_score, recall_score, log_loss
 import os
 import polars as pl
 import numpy as np
+
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, precision_score, recall_score, log_loss
+from gensim.models import Word2Vec
 
 class BERTEncoder(nn.Module):
     def __init__(self, args : Namespace):
@@ -194,6 +197,79 @@ class SplitBERT(nn.Module):
         lengths = mask.sum(dim=1).clamp(min=1)
 
         return x.sum(dim=1)/lengths
+    
+class Word2VecLSTM(nn.Module):
+    def __init__(self, args):
+        super().__init__()
+        self.args = args
+        self.embedding_dim = 100 # keeping it light so <300
+        self.hidden_size = 128
+
+        # path to save/load the trained Word2Vec model
+        self.w2v_path = os.path.join(args.dataset_dir, "w2v.model")
+
+        # build or load Word2Vec
+        if os.path.exists(self.w2v_path):
+            self.w2v = Word2Vec.load(self.w2v_path)
+        else:
+            raise RuntimeError(
+                "w2v.model not found. Train Word2Vec once on your CPU node and save it "
+                "to dataset/w2v.model before running the LSTM model."
+            )
+
+        # build vocab index from gensim model
+        vocab = list(self.w2v.wv.index_to_key)
+        self.word2idx = {w: i+1 for i, w in enumerate(vocab)} # 0 reserved for PAD
+        self.word2idx["<PAD>"] = 0
+
+        # build embedding weight matrix
+        weights = torch.zeros((len(vocab) + 1, self.embedding_dim))
+        for i, w in enumerate(vocab):
+            weights[i+1] = torch.tensor(self.w2v.wv[w])
+
+        self.embedding = nn.Embedding.from_pretrained(weights, freeze=True)
+
+        self.lstm = nn.LSTM(
+            input_size=self.embedding_dim,
+            hidden_size=self.hidden_size,
+            num_layers=1,
+            batch_first=True,
+            bidirectional=False
+        )
+
+        # interaction head (same pattern as BERT head)
+        self.head = nn.Sequential(
+            nn.Linear(self.hidden_size * 4, 256),
+            nn.ReLU(),
+            nn.Linear(256, 3),
+        )
+
+    def encode(self, x, mask):
+        """
+        x: (B, L) indices
+        mask: (B, L) 1 for real tokens, 0 for padding
+        """
+        emb = self.embedding(x) # (B, L, E)
+        # LSTM over full sequence.
+        _, (h, _) = self.lstm(emb) # h: (1, B, H)
+        h = h.squeeze(0) # (B, H)
+        return h
+
+    def forward(self, resume, resume_mask, description, description_mask):
+        res_vec = self.encode(resume, resume_mask)
+        job_vec = self.encode(description, description_mask)
+
+        x = torch.cat(
+            [
+                res_vec,
+                job_vec,
+                torch.abs(res_vec - job_vec),
+                res_vec * job_vec,
+            ],
+            dim=1,
+        )
+
+        return self.head(x)
     
 class TFIDFLogReg:
     def __init__(self, args):

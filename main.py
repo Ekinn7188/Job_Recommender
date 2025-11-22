@@ -8,7 +8,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import polars as pl
 import numpy as np
 
-from lib import parse_args, Data, TempModel, SharedBERT, SplitBERT, train_one_epoch, test, validate, download_dataset, TFIDFLogReg
+from lib import parse_args, Data, TempModel, SharedBERT, SplitBERT, train_one_epoch, test, validate, download_dataset, TFIDFLogReg, Word2VecLSTM, Word2VecData
 
 def main(args : argparse.Namespace):
     # make output dirs
@@ -79,15 +79,23 @@ def main(args : argparse.Namespace):
     # Prepare data
     if rank == 0:
         print("Preparing datasets...\n")
-    train_dataset = Data(train_df, args, "train")
+
+    if args.model_type.upper() == "WORD2VEC":
+        # load vocab from W2V model (only need vocab, not full model)
+        tmp_model = Word2VecLSTM(args)
+        w2v_vocab = tmp_model.word2idx
+
+        train_dataset = Word2VecData(train_df, args, w2v_vocab)
+        test_dataset  = Word2VecData(test_df,  args, w2v_vocab)
+        val_dataset   = Word2VecData(val_df,   args, w2v_vocab)
+
+    else:
+        train_dataset = Data(train_df, args, "train")
+        test_dataset  = Data(test_df, args, "test", tokenizer=train_dataset.tokenizer)
+        val_dataset   = Data(val_df, args, "val", tokenizer=train_dataset.tokenizer)
+
     if rank == 0:
-        print("Finished train")
-    test_dataset = Data(test_df, args, "test", tokenizer=train_dataset.tokenizer)
-    if rank == 0:
-        print("Finished test")
-    val_dataset = Data(val_df, args, "val", tokenizer=train_dataset.tokenizer)
-    if rank == 0:
-        print("Finished val\n")
+        print("Finished datasets\n")
 
     if is_ddp:
         train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
@@ -113,7 +121,7 @@ def main(args : argparse.Namespace):
         case "ML":
             raise ValueError("ML model_type uses separate TF-IDF code path in main().")
         case "WORD2VEC":
-            model = TempModel()
+            model = Word2VecLSTM(args)
         case _:
             raise ValueError(f'Invalid model type selected. Must be one of: ["SharedBERT", "SplitBERT", "ML", "Word2Vec"]. Currently selected: {args.model_type}.')
     

@@ -16,4 +16,8 @@ conda activate JobRecommender
 
 # srun --unbuffered python main.py --device 0 --model_type SplitBERT --version split --batch_size 2
 
-srun --unbuffered python main.py --device 5 --model_type ML --version tfidf_baseline
+# for model 1(ML)
+# srun --unbuffered python main.py --device 5 --model_type ML --version tfidf_baseline
+
+# for model 3(Word2Vec)
+srun --unbuffered python main.py --device 5 --model_type Word2Vec --version w2v_baseline

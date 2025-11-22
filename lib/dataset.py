@@ -269,3 +269,49 @@ def download_dataset(args: Namespace) -> None:
                     progress_bar.update(chunk_size)
         
         progress_bar.close()
+        
+class Word2VecData(torch.utils.data.Dataset):
+    def __init__(self, df, args, w2v_vocab, max_len=300):
+        self.args = args
+        self.max_len = max_len
+        self.word2idx = w2v_vocab # dict: word => index
+
+        self.resumes = df["resume_text"].to_list()
+        self.descriptions = df["job_description_text"].to_list()
+        self.labels = df["label"].map_elements(self._label_func).to_numpy()
+
+    def _label_func(self, s: str) -> int:
+        s = s.upper()
+        if "NO FIT" in s:
+            return 0
+        elif "POTENTIAL" in s:
+            return 1
+        elif "GOOD" in s:
+            return 2
+        else:
+            raise ValueError(f"Unknown label: {s}")
+
+    def _text_to_indices(self, text: str):
+        tokens = text.lower().split()
+        ids = [self.word2idx.get(tok, 0) for tok in tokens][:self.max_len]
+        mask = [1] * len(ids)
+        # pad
+        if len(ids) < self.max_len:
+            pad_len = self.max_len - len(ids)
+            ids += [0] * pad_len
+            mask += [0] * pad_len
+        return torch.tensor(ids, dtype=torch.long), torch.tensor(mask, dtype=torch.float32)
+
+    def __getitem__(self, i):
+        resume_text = self.resumes[i]
+        desc_text = self.descriptions[i]
+
+        resume_ids, resume_mask = self._text_to_indices(resume_text)
+        desc_ids, desc_mask = self._text_to_indices(desc_text)
+        label = torch.tensor(self.labels[i], dtype=torch.long)
+
+        # same structure as Data class
+        return resume_ids, resume_mask, desc_ids, desc_mask, label
+
+    def __len__(self):
+        return len(self.labels)
