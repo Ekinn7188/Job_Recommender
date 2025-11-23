@@ -7,7 +7,8 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
                     model : type[nn.Module],
                     criterion : type[nn.Module], 
                     opt : type[torch.optim.Optimizer],
-                    device : torch.device):
+                    device : torch.device,
+                    args):
     """
     Train the model for one epoch.
 
@@ -34,11 +35,19 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
     predicted_y = []
     true_y = []
 
-    for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in tqdm(dataloader):
+    for batch in tqdm(dataloader):
         opt.zero_grad()
 
-        predicted = model(resumes.to(device), resumes_attention_masks.to(device), descriptions.to(device), descriptions_attention_masks.to(device))
+        if args.is_type_classifier:
+            (resumes, resumes_attention_masks, labels) = batch
 
+            predicted = model(resumes.to(device), resumes_attention_masks.to(device))
+
+        else:
+            (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) = batch
+            
+            predicted = model(resumes.to(device), resumes_attention_masks.to(device), descriptions.to(device), descriptions_attention_masks.to(device))
+            
         l = criterion(predicted, labels.flatten().to(device))
 
         l.backward()
@@ -57,7 +66,8 @@ def train_one_epoch(dataloader : torch.utils.data.DataLoader,
 
 def validate(dataloader : torch.utils.data.DataLoader, 
              model : type[nn.Module],
-             device : torch.device):
+             device : torch.device,
+             args):
     """
     Validate the model's mid-epoch progress.
 
@@ -83,13 +93,17 @@ def validate(dataloader : torch.utils.data.DataLoader,
     true_y = []
 
     with torch.no_grad():
-        for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in tqdm(dataloader):
-            predicted = model(
-                resumes.to(device),
-                resumes_attention_masks.to(device),
-                descriptions.to(device),
-                descriptions_attention_masks.to(device),
-            )
+        for batch in tqdm(dataloader):
+            
+            if args.is_type_classifier:
+                (resumes, resumes_attention_masks, labels) = batch
+
+                predicted = model(resumes.to(device), resumes_attention_masks.to(device))
+
+            else:
+                (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) = batch
+                
+                predicted = model(resumes.to(device), resumes_attention_masks.to(device), descriptions.to(device), descriptions_attention_masks.to(device))
 
             predicted_y.append(predicted.cpu().detach())
             true_y.append(labels.cpu().detach())
@@ -103,7 +117,8 @@ def validate(dataloader : torch.utils.data.DataLoader,
 
 def test(dataloader : torch.utils.data.DataLoader, 
          model : type[nn.Module],
-         device : torch.device):
+         device : torch.device,
+         args):
     """
     Test the model's full progress.
 
@@ -127,13 +142,16 @@ def test(dataloader : torch.utils.data.DataLoader,
 
 
     with torch.no_grad():
-        for (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) in tqdm(dataloader):
-            predicted = model(
-                resumes.to(device),
-                resumes_attention_masks.to(device),
-                descriptions.to(device),
-                descriptions_attention_masks.to(device),
-            )
+        for batch in tqdm(dataloader):
+            if args.is_type_classifier:
+                (resumes, resumes_attention_masks, labels) = batch
+
+                predicted = model(resumes.to(device), resumes_attention_masks.to(device))
+
+            else:
+                (resumes, resumes_attention_masks, descriptions, descriptions_attention_masks, labels) = batch
+                
+                predicted = model(resumes.to(device), resumes_attention_masks.to(device), descriptions.to(device), descriptions_attention_masks.to(device))
             
             predicted_y.append(predicted.cpu().detach())
             true_y.append(labels.cpu().detach())

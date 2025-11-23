@@ -20,7 +20,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--device", default="cpu", type=str)
-    parser.add_argument("--model_type", default="SharedBERT", choices=["SharedBERT", "SplitBERT", "ML", "Word2Vec"])
+    parser.add_argument("--model_type", default="SharedBERT", choices=["SharedBERT", "SplitBERT", "TypeClassifierBERT", "ML", "Word2Vec"])
     parser.add_argument("--epochs", default=20, type=int)
     parser.add_argument("--learning_rate", default=1e-3, type=float)
     parser.add_argument("--batch_size", default=1, type=int)
@@ -32,5 +32,13 @@ def parse_args() -> argparse.Namespace:
     # --------
 
     args = parser.parse_args()
+
+    # add a type classifier vs fit classifier argument for simplicity
+    if "TypeClassifier" in args.model_type:
+        type_classifier = True
+    else:
+        type_classifier = False
+    
+    setattr(args, "is_type_classifier", type_classifier) # can now be accessed via args.is_type_classifier
 
     return args

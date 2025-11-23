@@ -13,99 +13,47 @@ import transformers
 
 from .config import PRETRAINED_BERT_MAX_TOKENS
 
-class Data(torch.utils.data.Dataset):
-    def __init__(self, df : pl.DataFrame, args : Namespace, name:str, tokenizer : transformers.AutoTokenizer = None):
+class DataBaseClass(torch.utils.data.Dataset):
+    def __init__(self, isSuper=False):
         """
         Initialize the dataset.
+        """
+        super(DataBaseClass, self).__init__()
+        if not isSuper:
+            NotImplementedError("Dont use this, use one of the children instead")
+
+
+    def label_func(self, col_name: str) -> int:
+        """
+        Map labels to classes. Uses self.df attribute.
 
         Parameters
         ----------
 
-        df : polars.DataFrame
-            The dataframe to process. Must contain columns `["resume_text", "job_description_text", "label"]`. </br>
-            The column named `label` must contain rows holding `["No Fit", "Potential Fit", "Good Fit"]`.
-        args : argparse.Namespace
-            The arguments passed through the command line.
-        """
-        super(Data, self).__init__()
-
-        self.tokenizer = tokenizer
-
-        self.df = df
-        self.args = args
-
-        ## Give labels probability
-        
-        self.labels = self.df.select(pl.col("label").map_elements(self._label_func, return_dtype=pl.Int32)).to_numpy()
-        self.labels = torch.from_numpy(self.labels.copy()).long() # .copy() because array is "not writable"?
-
-        ## tokenize for BERT
-        # check if cached first
-        cache_file = os.path.join(args.dataset_dir, "cache", f"cached_{name}.pkl")
-        if os.path.exists(cache_file):
-            with open(cache_file, "rb") as f:
-                cached = pickle.load(f)
-                self.resumes, self.resumes_attention_mask, self.descriptions, self.descriptions_attention_mask = cached
-            return
-        else:
-            cache_path = os.path.join(args.dataset_dir, "cache")
-            os.makedirs(cache_path, exist_ok=True)
-
-        # Use pre-trained WordPiece tokenizer.. it'll break down the tokens better than one trained on our data.
-
-        # https://huggingface.co//google-bert/bert-base-uncased
-        if not self.tokenizer:
-            if dist.is_initialized():
-                rank = dist.get_rank()
-            else:
-                rank = 0
-
-            if rank == 0:
-                print("loading pretrained BERT tokenizer...")
-
-            self.tokenizer = transformers.BertTokenizerFast.from_pretrained("bert-base-uncased")
-
-            if rank == 0:
-                print("loaded pretrained BERT tokenizer.\n")
-
-        # check that max_tokens is a multiple of PRETRAINED_BERT_MAX_TOKENS (512)
-        assert self.args.max_tokens % PRETRAINED_BERT_MAX_TOKENS == 0 and self.args.max_tokens > 0, "The configurated max_tokens value must be a multiple of 512, which is greater than 0."
-
-        # tokenize resumes...
-        self.resumes, self.resumes_attention_mask = self.tokenize_and_chunk(self.tokenizer, self.df, "resume_text")
-
-        # tokenize descriptions...
-        self.descriptions, self.descriptions_attention_mask = self.tokenize_and_chunk(self.tokenizer, self.df, "job_description_text")
-        
-        # cache results
-        cache = [self.resumes, self.resumes_attention_mask, self.descriptions, self.descriptions_attention_mask]
-        with open(cache_file, "wb") as f:
-            pickle.dump(cache, f)
-
-
-    def _label_func(self, s: str) -> int:
-        """
-        Map labels to classes.
-
-        Parameters
-        ----------
-
-        s : str
-            The label to map. Must be one of `["No Fit", "Potential Fit", "Good Fit"]`
+        col_name : str
+            The column name to label
 
         Returns
         -------
-        The mapped class.
+        The mapped labels as a PyTorch tensor.
         """
-        match s.upper():
-            case "NO FIT":
-                return 0
-            case "POTENTIAL FIT":
-                return 1
-            case "GOOD FIT":
-                return 2
-            case _:
-                raise ValueError(f'Expected "label" column to contain any of: ["No Fit", "Potential Fit", "Good Fit"]. Found: "{s}"')
+
+        id_mapping = self.df.select(pl.col(col_name).str.to_uppercase().alias(f"{col_name}_name")) \
+                    .unique() \
+                    .sort(f"{col_name}_name") \
+                    .with_row_index("id") 
+        
+
+        self.df = self.df.with_columns(
+            pl.col(col_name).str.to_uppercase().alias(f"{col_name}_name")
+        ).join(id_mapping, on=f"{col_name}_name")
+
+        self.df = self.df.drop(f"{col_name}_name")
+        
+        labels = self.df.select(pl.col("id")).to_numpy().flatten()
+        labels = torch.from_numpy(labels.copy()).long() # .copy() because array is "not writable"?
+
+        return labels
 
     def tokenize_and_chunk(self, tokenizer: transformers.BertTokenizerFast, df: pl.DataFrame, col: str) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -182,7 +130,69 @@ class Data(torch.utils.data.Dataset):
         masks = torch.stack(masks)
 
         return ids, masks
+    
+    def __len__(self) -> int:
+        """
+        Get the number of rows in the dataset.
+        """
+        return self.labels.shape[0]
 
+class FitClassifierData(DataBaseClass):
+    def __init__(self, df : pl.DataFrame, args : Namespace, name:str, tokenizer : transformers.AutoTokenizer = None):
+        super(FitClassifierData, self).__init__(isSuper=True)
+        
+        self.tokenizer = tokenizer
+
+        self.df = df
+        self.args = args
+
+        ## Give labels probability
+
+        self.labels = self.label_func("label")
+
+        ## tokenize for BERT
+        # check if cached first
+        cache_file = os.path.join(args.dataset_dir, "fit", "cache", f"cached_{name}.pkl")
+        if os.path.exists(cache_file):
+            with open(cache_file, "rb") as f:
+                cached = pickle.load(f)
+                self.resumes, self.resumes_attention_mask, self.descriptions, self.descriptions_attention_mask = cached
+            return
+        else:
+            cache_path = os.path.join(args.dataset_dir, "fit", "cache")
+            os.makedirs(cache_path, exist_ok=True)
+
+        # Use pre-trained WordPiece tokenizer.. it'll break down the tokens better than one trained on our data.
+
+        # https://huggingface.co//google-bert/bert-base-uncased
+        if not self.tokenizer:
+            if dist.is_initialized():
+                rank = dist.get_rank()
+            else:
+                rank = 0
+
+            if rank == 0:
+                print("loading pretrained BERT tokenizer...")
+
+            self.tokenizer = transformers.BertTokenizerFast.from_pretrained("bert-base-uncased")
+
+            if rank == 0:
+                print("loaded pretrained BERT tokenizer.\n")
+
+        # check that max_tokens is a multiple of PRETRAINED_BERT_MAX_TOKENS (512)
+        assert self.args.max_tokens % PRETRAINED_BERT_MAX_TOKENS == 0 and self.args.max_tokens > 0, "The configurated max_tokens value must be a multiple of 512, which is greater than 0."
+
+        # tokenize resumes...
+        self.resumes, self.resumes_attention_mask = self.tokenize_and_chunk(self.tokenizer, self.df, "resume_text")
+
+        # tokenize descriptions...
+        self.descriptions, self.descriptions_attention_mask = self.tokenize_and_chunk(self.tokenizer, self.df, "job_description_text")
+        
+        # cache results
+        cache = [self.resumes, self.resumes_attention_mask, self.descriptions, self.descriptions_attention_mask]
+
+        with open(cache_file, "wb") as f:
+            pickle.dump(cache, f)
 
     def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
@@ -206,12 +216,83 @@ class Data(torch.utils.data.Dataset):
             self.descriptions[i], self.descriptions_attention_mask[i],
             self.labels[i]
         )
+
+class TypeClassifierData(DataBaseClass):
+    def __init__(self, df : pl.DataFrame, args : Namespace, name:str, tokenizer : transformers.AutoTokenizer = None):
+        super(TypeClassifierData, self).__init__(isSuper=True)
+
+        
+        self.tokenizer = tokenizer
+
+        self.df = df
+        self.args = args
+
+        ## Give labels probability
+
+        self.labels = self.label_func("Category")
+
+        ## tokenize for BERT
+        # check if cached first
+        cache_file = os.path.join(args.dataset_dir, "type", "cache", f"cached_{name}.pkl")
+        if os.path.exists(cache_file):
+            with open(cache_file, "rb") as f:
+                cached = pickle.load(f)
+                self.text, self.text_attention_mask = cached
+            return
+        else:
+            cache_path = os.path.join(args.dataset_dir, "type", "cache")
+            os.makedirs(cache_path, exist_ok=True)
+
+        # Use pre-trained WordPiece tokenizer.. it'll break down the tokens better than one trained on our data.
+
+        # https://huggingface.co//google-bert/bert-base-uncased
+        if not self.tokenizer:
+            if dist.is_initialized():
+                rank = dist.get_rank()
+            else:
+                rank = 0
+
+            if rank == 0:
+                print("loading pretrained BERT tokenizer...")
+
+            self.tokenizer = transformers.BertTokenizerFast.from_pretrained("bert-base-uncased")
+
+            if rank == 0:
+                print("loaded pretrained BERT tokenizer.\n")
+
+        # check that max_tokens is a multiple of PRETRAINED_BERT_MAX_TOKENS (512)
+        assert self.args.max_tokens % PRETRAINED_BERT_MAX_TOKENS == 0 and self.args.max_tokens > 0, "The configurated max_tokens value must be a multiple of 512, which is greater than 0."
+
+        # tokenize resumes...
+        self.text, self.text_attention_mask = self.tokenize_and_chunk(self.tokenizer, self.df, "Text")
+
+        # cache results
+        cache = [self.text, self.text_attention_mask]
+
+        with open(cache_file, "wb") as f:
+            pickle.dump(cache, f)
+
+    def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Get individual rows from the dataset at a specified index.
+
+        Parameters
+        ----------
+
+        i : int
+            The index to access.
+
+        Returns
+        -------
+        A **5-tuple** containing **(1)** the tokenized resume text, **(2)** the resume text's attention mask, 
+        **(3)** the corresponding category.
+        """
+
+        return (
+            self.text[i], self.text_attention_mask[i],
+            self.labels[i]
+        )
     
-    def __len__(self) -> int:
-        """
-        Get the number of rows in the dataset.
-        """
-        return self.labels.shape[0]
 
 def download_dataset(args: Namespace) -> None:
     """
@@ -222,22 +303,30 @@ def download_dataset(args: Namespace) -> None:
     args : argparse.Namespace
         The arguments passed through the command line.
     """
+    working_path = os.path.join(args.dataset_dir, "type" if args.is_type_classifier else "fit") # for the different datasets
 
-    if os.path.exists(args.dataset_dir):
+
+    if os.path.exists(working_path):
         return
     
-    os.makedirs(args.dataset_dir, exist_ok=True)
+    os.makedirs(working_path, exist_ok=True)
 
     # TODO use https://www.openintro.org/data/index.php?data=resume if needing more data
-    DATASETS = {
-        "train.csv": "https://huggingface.co/datasets/cnamuangtoun/resume-job-description-fit/resolve/main/train.csv?download=true",
-        "test.csv": "https://huggingface.co/datasets/cnamuangtoun/resume-job-description-fit/resolve/main/test.csv?download=true"
-    }
+    if args.is_type_classifier:
+        DATASETS = {
+            "full.csv": "https://huggingface.co/datasets/ahmedheakl/resume-atlas/resolve/main/train.csv?download=true",
+            # only has one dataset.. we'll split it 80% train / 20% split
+        }
+    else:
+        DATASETS = {
+            "train.csv": "https://huggingface.co/datasets/cnamuangtoun/resume-job-description-fit/resolve/main/train.csv?download=true",
+            "test.csv": "https://huggingface.co/datasets/cnamuangtoun/resume-job-description-fit/resolve/main/test.csv?download=true"
+        }
     
     print("Dataset not downloaded. Starting download.")
 
     for file_name, url in DATASETS.items():
-        file_path = os.path.join(args.dataset_dir, file_name)
+        file_path = os.path.join(working_path, file_name)
 
         r = requests.get(url, stream=True)
         
@@ -269,6 +358,20 @@ def download_dataset(args: Namespace) -> None:
                     progress_bar.update(chunk_size)
         
         progress_bar.close()
+
+        if file_name == "full.csv":
+            # split dataset
+            print("Splitting downloaded dataset into 80% train and 20% test")
+
+            df = pl.read_csv(file_path)
+
+            train_size = int(df.shape[0] * 0.80)
+
+            train_df = df.head(train_size)
+            test_df = df.tail(-train_size)
+
+            train_df.write_csv(os.path.join(working_path, "train.csv"))
+            test_df.write_csv(os.path.join(working_path, "test.csv"))
         
 class Word2VecData(torch.utils.data.Dataset):
     def __init__(self, df, args, w2v_vocab, max_len=300):

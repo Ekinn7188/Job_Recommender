@@ -15,7 +15,8 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, log_loss
-from gensim.models import Word2Vec
+
+from gensim.models import Word2Vec 
 
 class BERTEncoder(nn.Module):
     def __init__(self, args : Namespace):
@@ -63,6 +64,52 @@ class BERTEncoder(nn.Module):
         encoded_chunks = encoded_chunks.reshape(B, C, L, -1)
 
         return encoded_chunks
+
+class TypeClassifierBERT(nn.Module):
+    def __init__(self, args):
+        super(TypeClassifierBERT, self).__init__()
+
+        self.BERT_encoder = BERTEncoder(args)
+
+        self.hidden_size = 768 # output from BERT
+
+        self.num_classes = 43 # from the type classification dataset
+
+        self.dropout = 0.1
+
+        self.linear = nn.Sequential(
+            nn.Linear(self.hidden_size,self.hidden_size//2),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size//2,self.hidden_size//4),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size//4, self.num_classes),
+        )
+
+    def forward(self, x, x_attn_mask):
+        x = self.BERT_encoder(x, x_attn_mask)
+
+        x = x[:, :, 0, :] # get [CLS] from every chunk. Shape is (B, C, H)
+
+        x_attn_mask = x_attn_mask.any(dim=2).float()
+
+        x = self.masked_mean(x, x_attn_mask) # Shape is (B, H)
+
+        x = self.linear(x)
+
+        return x
+
+
+
+
+    def masked_mean(self, x, mask):
+        mask = mask.unsqueeze(-1)
+        x = x * mask
+
+        lengths = mask.sum(dim=1).clamp(min=1)
+
+        return x.sum(dim=1)/lengths
 
 class SharedBERT(nn.Module):
     def __init__(self, args):
@@ -217,7 +264,8 @@ class SplitBERT(nn.Module):
     
 class Word2VecLSTM(nn.Module):
     def __init__(self, args):
-        super().__init__()
+        super(Word2VecLSTM, self).__init__()
+
         self.args = args
         self.embedding_dim = 100 # keeping it light so <300
         self.hidden_size = 128
@@ -365,7 +413,6 @@ class TFIDFLogReg:
             "test_rec": float(recall_score(y_test, y_pred, average="macro")),
             "test_ce": float(log_loss(y_test, y_prob, labels=[0,1,2]))
         }
-
 
 class TempModel(nn.Module):
     def __init__(self):

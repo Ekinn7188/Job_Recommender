@@ -8,7 +8,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import polars as pl
 import numpy as np
 
-from lib import parse_args, Data, TempModel, SharedBERT, SplitBERT, train_one_epoch, test, validate, download_dataset, TFIDFLogReg, Word2VecLSTM, Word2VecData
+from lib import parse_args, FitClassifierData, TypeClassifierData, TempModel, SharedBERT, \
+    SplitBERT, train_one_epoch, test, validate, download_dataset, \
+    TFIDFLogReg, Word2VecLSTM, Word2VecData, TypeClassifierBERT
 
 def main(args : argparse.Namespace):
     # make output dirs
@@ -42,8 +44,10 @@ def main(args : argparse.Namespace):
 
     ## Read dataset CSVs
 
-    train_path = os.path.join(args.dataset_dir, "train.csv")
-    test_path = os.path.join(args.dataset_dir, "test.csv")
+    dataset_subdirectory = "type" if args.is_type_classifier else "fit"
+
+    train_path = os.path.join(args.dataset_dir, dataset_subdirectory, "train.csv")
+    test_path = os.path.join(args.dataset_dir, dataset_subdirectory, "test.csv")
 
     train_df = pl.read_csv(train_path)
     test_df = pl.read_csv(test_path)
@@ -90,9 +94,14 @@ def main(args : argparse.Namespace):
         val_dataset   = Word2VecData(val_df,   args, w2v_vocab)
 
     else:
-        train_dataset = Data(train_df, args, "train")
-        test_dataset  = Data(test_df, args, "test", tokenizer=train_dataset.tokenizer)
-        val_dataset   = Data(val_df, args, "val", tokenizer=train_dataset.tokenizer)
+        if args.is_type_classifier:
+            data_class = TypeClassifierData
+        else:
+            data_class = FitClassifierData
+            
+        train_dataset = data_class(train_df, args, "train")
+        test_dataset  = data_class(test_df, args, "test", tokenizer=train_dataset.tokenizer)
+        val_dataset   = data_class(val_df, args, "val", tokenizer=train_dataset.tokenizer)
 
     if rank == 0:
         print("Finished datasets\n")
@@ -122,6 +131,8 @@ def main(args : argparse.Namespace):
             raise ValueError("ML model_type uses separate TF-IDF code path in main().")
         case "WORD2VEC":
             model = Word2VecLSTM(args)
+        case "TYPECLASSIFIERBERT":
+            model = TypeClassifierBERT(args)
         case _:
             raise ValueError(f'Invalid model type selected. Must be one of: ["SharedBERT", "SplitBERT", "ML", "Word2Vec"]. Currently selected: {args.model_type}.')
     
@@ -167,9 +178,9 @@ def main(args : argparse.Namespace):
         if is_ddp:
             train_sampler.set_epoch(e)
 
-        training_CE, training_accuracy, training_precision, training_recall  = train_one_epoch(train_dataloader, model, criterion, opt, DEVICE)
+        training_CE, training_accuracy, training_precision, training_recall  = train_one_epoch(train_dataloader, model, criterion, opt, DEVICE, args)
 
-        val_CE, val_accuracy, val_precision, val_recall  = validate(val_dataloader, model, DEVICE)
+        val_CE, val_accuracy, val_precision, val_recall  = validate(val_dataloader, model, DEVICE, args)
  
         if rank == 0:        
             records.append({
@@ -230,7 +241,7 @@ def main(args : argparse.Namespace):
         log_path = os.path.join(args.output_dir, args.version, f"output_log.csv")
         log_df.write_csv(log_path)
 
-    test_CE, test_accuracy, test_precision, test_recall = test(test_dataloader, model, DEVICE)
+    test_CE, test_accuracy, test_precision, test_recall = test(test_dataloader, model, DEVICE, args)
 
     if rank == 0:    
         test_results = pl.DataFrame({
