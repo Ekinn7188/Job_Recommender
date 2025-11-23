@@ -2,6 +2,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 import polars as pl
+import numpy as np
 
 from argparse import Namespace
 from tqdm import tqdm
@@ -23,7 +24,7 @@ class DataBaseClass(torch.utils.data.Dataset):
             NotImplementedError("Dont use this, use one of the children instead")
 
 
-    def label_func(self, col_name: str) -> int:
+    def label_func(self, col_name: str, mapping: dict[str, int]) -> int:
         """
         Map labels to classes. Uses self.df attribute.
 
@@ -33,24 +34,18 @@ class DataBaseClass(torch.utils.data.Dataset):
         col_name : str
             The column name to label
 
+        mapping : dict[str, int]
+            The label -> Class ID mapping
+        
         Returns
         -------
         The mapped labels as a PyTorch tensor.
         """
 
-        id_mapping = self.df.select(pl.col(col_name).str.to_uppercase().alias(f"{col_name}_name")) \
-                    .unique() \
-                    .sort(f"{col_name}_name") \
-                    .with_row_index("id") 
-        
+        mapping = {k.upper():v for k,v in mapping.items()}
 
-        self.df = self.df.with_columns(
-            pl.col(col_name).str.to_uppercase().alias(f"{col_name}_name")
-        ).join(id_mapping, on=f"{col_name}_name")
+        labels = self.df.select(pl.col(col_name).str.to_uppercase().replace(mapping)).to_numpy().astype(np.int32)
 
-        self.df = self.df.drop(f"{col_name}_name")
-        
-        labels = self.df.select(pl.col("id")).to_numpy().flatten()
         labels = torch.from_numpy(labels.copy()).long() # .copy() because array is "not writable"?
 
         return labels
@@ -148,7 +143,8 @@ class FitClassifierData(DataBaseClass):
 
         ## Give labels probability
 
-        self.labels = self.label_func("label")
+        self.mapping = {'No Fit': 0, 'Potential Fit': 1, 'Good Fit': 2}
+        self.labels = self.label_func("label", self.mapping)
 
         ## tokenize for BERT
         # check if cached first
@@ -229,7 +225,8 @@ class TypeClassifierData(DataBaseClass):
 
         ## Give labels probability
 
-        self.labels = self.label_func("Category")
+        self.mapping = {'Python Developer': 0, 'Designing': 1, 'Architecture': 2, 'Java Developer': 3, 'Database': 4, 'Aviation': 5, 'Business Analyst': 6, 'DevOps': 7, 'Digital Media': 8, 'PMO': 9, 'Civil Engineer': 10, 'ETL Developer': 11, 'Blockchain': 12, 'Data Science': 13, 'Agriculture': 14, 'Public Relations': 15, 'Apparel': 16, 'Arts': 17, 'Web Designing': 18, 'Accountant': 19, 'Mechanical Engineer': 20, 'React Developer': 21, 'Network Security Engineer': 22, 'Consultant': 23, 'SAP Developer': 24, 'Electrical Engineering': 25, 'Management': 26, 'Information Technology': 27, 'Health and Fitness': 28, 'Advocate': 29, 'Operations Manager': 30, 'Education': 31, 'Banking': 32, 'Automobile': 33, 'Finance': 34, 'Human Resources': 35, 'Sales': 36, 'Building and Construction': 37, 'BPO': 38, 'Testing': 39, 'DotNet Developer': 40, 'SQL Developer': 41, 'Food and Beverages': 42}
+        self.labels = self.label_func("Category", self.mapping)
 
         ## tokenize for BERT
         # check if cached first

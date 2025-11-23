@@ -71,6 +71,9 @@ class TypeClassifierBERT(nn.Module):
 
         self.BERT_encoder = BERTEncoder(args)
 
+        for p in self.BERT_encoder.parameters():
+            p.requires_grad = False
+
         self.hidden_size = 768 # output from BERT
 
         self.num_classes = 43 # from the type classification dataset
