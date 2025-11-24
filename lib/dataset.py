@@ -362,6 +362,8 @@ def download_dataset(args: Namespace) -> None:
 
             df = pl.read_csv(file_path)
 
+            df = df.sample(fraction=1.0, shuffle=True, seed=args.seed)
+
             train_size = int(df.shape[0] * 0.80)
 
             train_df = df.head(train_size)
