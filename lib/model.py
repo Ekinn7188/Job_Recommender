@@ -7,6 +7,7 @@ from transformers import BertModel
 from argparse import Namespace
 
 from .config import PRETRAINED_BERT_MAX_TOKENS
+from .dataset import download_file
 
 import os
 import polars as pl
@@ -114,100 +115,78 @@ class TypeClassifierBERT(nn.Module):
 
         return x.sum(dim=1)/lengths
 
-class SharedBERT(nn.Module):
-    def __init__(self, args):
-        super(SharedBERT, self).__init__()
+class FitClassifierBERT(nn.Module):
+    def __init__(self, args, DEVICE):
+        super(FitClassifierBERT, self).__init__()
 
-        self.BERT_encoder = BERTEncoder(args)
+        self.type_model = TypeClassifierBERT(args)
 
-        # for p in self.BERT_encoder.parameters():
+        weights = self.install_type_model(args, DEVICE)
+        
+        self.type_model.load_state_dict(weights)
+        self.type_model.linear = self.type_model.linear[:-1] # remove final classification layer
+
+
+        self.hidden = self.type_model.linear[-3].out_features
+        
+        # Freeze everything in the type model
+        # for p in self.type_model.parameters():
         #     p.requires_grad = False
-        # self.BERT_encoder.eval()
 
-        self.hidden_size = 768
-        
-        self.linear = nn.Sequential(
-            nn.Linear(self.hidden_size*4,self.hidden_size),
-            nn.ReLU(),
-            nn.Linear(self.hidden_size,self.hidden_size//2),
-            nn.ReLU(),
-            nn.Linear(self.hidden_size//2, 3),
-        )
+        # self.type_model.eval()
 
-    def forward(self, resume, resume_attn_mask, description, description_attn_mask):
-        B, C, L = resume_attn_mask.shape
-
-        resume_encodings = self.BERT_encoder(resume, resume_attn_mask)[:, :, 0, :] # get CLS
-        description_encodings = self.BERT_encoder(description, description_attn_mask)[:, :, 0, :]  # get CLS
-
-        chunk_mask_r = resume_attn_mask.any(dim=2).float()
-        chunk_mask_d = description_attn_mask.any(dim=2).float()
-
-        resume_encodings = self.masked_mean(resume_encodings, chunk_mask_r)
-        description_encodings = self.masked_mean(description_encodings, chunk_mask_d)
-
-        output = torch.cat([resume_encodings, 
-                            description_encodings, 
-                            torch.abs(resume_encodings - description_encodings), 
-                            resume_encodings * description_encodings], dim=1)
-        
-        # print(output.shape)
-
-        output = self.linear(output)
-
-        return output
-
-    def masked_mean(self, x, mask):
-        mask = mask.unsqueeze(-1)
-        x = x * mask
-
-        lengths = mask.sum(dim=1).clamp(min=1)
-
-        return x.sum(dim=1)/lengths
-    
-class SplitBERT(nn.Module):
-    def __init__(self, args):
-        super(SplitBERT, self).__init__()
-
-        self.resume_encoder = BERTEncoder(args)
-        self.description_encoder = BERTEncoder(args)
-
-        self.hidden_size = 768
-        self.n_heads = 4
         self.dropout = 0.1
+        self.n_heads = 4
 
+        
         self.cross_attention_r2d = nn.MultiheadAttention(
-            embed_dim=self.hidden_size,
+            embed_dim=self.type_model.hidden_size,
             num_heads=self.n_heads,
             batch_first=True,
             dropout=self.dropout
         )
         
         self.cross_attention_d2r = nn.MultiheadAttention(
-            embed_dim=self.hidden_size,
+            embed_dim=self.type_model.hidden_size,
             num_heads=self.n_heads,
             batch_first=True,
             dropout=self.dropout
         )
 
-        self.conv = nn.Conv1d(self.hidden_size, self.hidden_size, kernel_size=3, padding=1)
-
-        self.linear = nn.Sequential(
-            nn.Linear(self.hidden_size*4,self.hidden_size),
+        self.mapping_layer = nn.Sequential(
+            # nn.ReLU(), # output from previous layers in TypeClassiferBert didn't have ReLU/Dropout
+            # nn.Dropout(self.dropout),
+            nn.Linear(self.hidden*4, self.hidden//2),
             nn.ReLU(),
-            nn.Linear(self.hidden_size,self.hidden_size//2),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden//2, self.hidden//4),
             nn.ReLU(),
-            nn.Linear(self.hidden_size//2, 3),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden//4, 3),
         )
 
-    def forward(self, resume, resume_attn_mask, description, description_attn_mask):
-        B, C, L = resume_attn_mask.shape
+    def install_type_model(self, args, DEVICE):
+        model_path = os.path.join(args.models_dir, "BERTTypeClassifier.pt")
 
-        resume_encodings = self.resume_encoder(resume, resume_attn_mask)
+        if not os.path.exists(args.models_dir):
+            os.makedirs(args.models_dir, exist_ok=True)
+            
+            URL = "https://github.com/Ekinn7188/Job_Recommender/releases/download/model-releases/BERTTypeClassifier.pt"
+            download_file(URL, "BERTTypeClassifier.pt", model_path)
+            
+        weights = torch.load(model_path, map_location=DEVICE)
+        
+        return weights
+
+
+    def forward(self, resume, resume_attn_mask, description, description_attn_mask):
+        B, C, L = resume.shape
+
+        resume_encodings = self.type_model.BERT_encoder(resume, resume_attn_mask)
         resume_encodings = resume_encodings.reshape(B, C*L, -1)
         resume_attn_mask = resume_attn_mask.reshape(B, C*L)
 
-        description_encodings = self.description_encoder(description, description_attn_mask)
+        description_encodings = self.type_model.BERT_encoder(description, description_attn_mask)
         description_encodings = description_encodings.reshape(B, C*L, -1)
         description_attn_mask = description_attn_mask.reshape(B, C*L)
 
@@ -233,27 +212,28 @@ class SplitBERT(nn.Module):
 
         resume_encodings = (resume_encodings + r_context)
         description_encodings = (description_encodings + d_context)
-
+        
         resume_encodings = resume_encodings.reshape(B, C, L, -1)[:, :, 0, :] # get CLS
         resume_attn_mask = resume_attn_mask.reshape(B, C, L)
 
         description_encodings = description_encodings.reshape(B, C, L, -1)[:, :, 0, :] # get CLS
         description_attn_mask = description_attn_mask.reshape(B, C, L)
 
-        # Head
+        resume_attn_mask = resume_attn_mask.any(dim=2).float()
+        description_attn_mask = description_attn_mask.any(dim=2).float()
 
-        chunk_mask_r = resume_attn_mask.any(dim=2).float()
-        chunk_mask_d = description_attn_mask.any(dim=2).float()
+        resume_encodings = self.masked_mean(resume_encodings, resume_attn_mask)
+        description_encodings = self.masked_mean(description_encodings, description_attn_mask)
 
-        resume_encodings = self.masked_mean(resume_encodings, chunk_mask_r)
-        description_encodings = self.masked_mean(description_encodings, chunk_mask_d)
+        resume_encodings =  self.type_model.linear(resume_encodings)
+        description_encodings = self.type_model.linear(description_encodings)
 
         output = torch.cat([resume_encodings, 
                             description_encodings, 
                             torch.abs(resume_encodings - description_encodings), 
                             resume_encodings * description_encodings], dim=1)
-
-        output = self.linear(output)
+        
+        output = self.mapping_layer(output)
 
         return output
 

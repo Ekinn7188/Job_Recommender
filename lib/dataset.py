@@ -325,36 +325,7 @@ def download_dataset(args: Namespace) -> None:
     for file_name, url in DATASETS.items():
         file_path = os.path.join(working_path, file_name)
 
-        r = requests.get(url, stream=True)
-        
-        file_size = int(r.headers.get('content-length', 0))
-
-        chunk_size = 1_024 # 1 KB
-
-        num_chunks = file_size // chunk_size
-
-        bytes_downloaded = 0
-
-        progress_bar = tqdm(
-            total=file_size, 
-            desc=f"Downloading {file_name}",
-            unit="B",
-            unit_scale=True,
-            unit_divisor=1_024, 
-            ncols=175,
-            ascii=" >=",
-            leave=True
-        )
-
-        with open(file_path, "wb") as file:
-            for i, chunk in enumerate(r.iter_content(chunk_size=chunk_size)):
-                file.write(chunk)
-
-                if i != num_chunks-1:
-                    bytes_downloaded += chunk_size
-                    progress_bar.update(chunk_size)
-        
-        progress_bar.close()
+        download_file(url, file_name, file_path)
 
         if file_name == "full.csv":
             # split dataset
@@ -372,6 +343,38 @@ def download_dataset(args: Namespace) -> None:
             train_df.write_csv(os.path.join(working_path, "train.csv"))
             test_df.write_csv(os.path.join(working_path, "test.csv"))
         
+def download_file(url, file_name, file_path):
+    r = requests.get(url, stream=True)
+        
+    file_size = int(r.headers.get('content-length', 0))
+
+    chunk_size = 1_024 # 1 KB
+
+    num_chunks = file_size // chunk_size
+
+    bytes_downloaded = 0
+
+    progress_bar = tqdm(
+        total=file_size, 
+        desc=f"Downloading {file_name}",
+        unit="B",
+        unit_scale=True,
+        unit_divisor=1_024, 
+        ncols=175,
+        ascii=" >=",
+        leave=True
+    )
+
+    with open(file_path, "wb") as file:
+        for i, chunk in enumerate(r.iter_content(chunk_size=chunk_size)):
+            file.write(chunk)
+
+            if i != num_chunks-1:
+                bytes_downloaded += chunk_size
+                progress_bar.update(chunk_size)
+    
+    progress_bar.close()
+
 class Word2VecData(torch.utils.data.Dataset):
     def __init__(self, df, args, w2v_vocab, max_len=300):
         self.args = args

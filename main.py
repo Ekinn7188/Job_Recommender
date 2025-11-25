@@ -8,8 +8,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import polars as pl
 import numpy as np
 
-from lib import parse_args, FitClassifierData, TypeClassifierData, TempModel, SharedBERT, \
-    SplitBERT, train_one_epoch, test, validate, download_dataset, \
+from lib import parse_args, FitClassifierData, TypeClassifierData, TempModel, \
+    FitClassifierBERT, train_one_epoch, test, validate, download_dataset, \
     TFIDFLogReg, Word2VecLSTM, Word2VecData, TypeClassifierBERT
 
 def main(args : argparse.Namespace):
@@ -123,10 +123,8 @@ def main(args : argparse.Namespace):
     # Get model
 
     match (args.model_type.upper()):
-        case "SHAREDBERT":
-            model = SharedBERT(args)
-        case "SPLITBERT":
-            model = SplitBERT(args)
+        case "FITCLASSIFIERBERT":
+            model = FitClassifierBERT(args, DEVICE)
         case "ML":
             raise ValueError("ML model_type uses separate TF-IDF code path in main().")
         case "WORD2VEC":
@@ -139,27 +137,27 @@ def main(args : argparse.Namespace):
     model = model.to(DEVICE)
 
     if is_ddp:
-        model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
+        model = DDP(model, device_ids=[local_rank], output_device=local_rank)#, find_unused_parameters=True)
 
     # Smaller LR on BERT, bigger on head.
 
     if "BERT" in args.model_type.upper(): 
-        bert_params = []
-        non_bert_params = []
+        type_params = []
+        non_type_params = []
 
         for name, param in model.named_parameters():
             if not param.requires_grad:
                 continue
 
             # Any parameter belonging to either BERT encoder
-            if "BERT_encoder" in name:
-                bert_params.append(param)
+            if "type_model" in name:
+                type_params.append(param)
             else:
-                non_bert_params.append(param)
+                non_type_params.append(param)
         
         opt = torch.optim.Adam([
-            {"params": bert_params, "lr": 5e-5},
-            {"params": non_bert_params, "lr": args.learning_rate},
+            {"params": type_params, "lr": 1e-5},
+            {"params": non_type_params, "lr": args.learning_rate},
         ])
     else:
         opt = torch.optim.Adam(params=model.parameters(), lr=args.learning_rate)
