@@ -254,7 +254,7 @@ class Word2VecLSTM(nn.Module):
         self.hidden_size = 128
 
         # path to save/load the trained Word2Vec model
-        self.w2v_path = os.path.join(args.dataset_dir, "w2v.model")
+        self.w2v_path = os.path.join(args.models_dir, "w2v.model")
 
         # build or load Word2Vec
         if os.path.exists(self.w2v_path):
@@ -262,7 +262,7 @@ class Word2VecLSTM(nn.Module):
         else:
             raise RuntimeError(
                 "w2v.model not found. Train Word2Vec once on your CPU node and save it "
-                "to dataset/w2v.model before running the LSTM model."
+                "to models/w2v.model before running the LSTM model."
             )
 
         # build vocab index from gensim model

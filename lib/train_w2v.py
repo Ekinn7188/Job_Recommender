@@ -2,8 +2,10 @@ import polars as pl
 from gensim.models import Word2Vec
 
 DATASET_DIR = "dataset"
+MODEL_DIR = "models"
 TRAIN_CSV = f"{DATASET_DIR}/train.csv"
 TEST_CSV = f"{DATASET_DIR}/test.csv"
+
 
 print("Loading CSVs...")
 train_df = pl.read_csv(TRAIN_CSV)
@@ -26,6 +28,6 @@ model = Word2Vec(
     workers=4
 )
 
-out_path = f"{DATASET_DIR}/w2v.model"
+out_path = f"{MODEL_DIR}/w2v.model"
 model.save(out_path)
 print(f"Saved Word2Vec model to {out_path}")
