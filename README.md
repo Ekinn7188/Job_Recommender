@@ -17,3 +17,11 @@ conda env create -f environment.yml
 ```
 python main.py
 ```
+
+## Command Options
+
+- Command options are available in lib/config.py
+
+## Dataset
+
+- If the dataset is not installed, it will be automatically installed for you.
